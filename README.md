@@ -1,41 +1,82 @@
 # SHARE – Frontend (Nuxt 4)
 
-Nuxt 4 + Pinia + Firebase Authentication + VeeValidate で作る Twitter風SNS のフロントエンドです。  
-バックエンド（Laravel API）と通信して、投稿・いいね・コメントを扱います。
+Twitter風SNS風アプリ「SHARE」のフロントエンドです。  
+Nuxt 4 をベースに、状態管理（Pinia）、フォームバリデーション（VeeValidate + Yup）、Firebase認証を利用して構築しました。  
+バックエンド（Laravel API）と連携し、投稿・いいね・コメント機能を扱います。
 
-## 📦 スタック
-- **Nuxt 4 / Vue 3**
-- **Pinia**（状態管理）
-- **Axios**（APIクライアント：`plugins/axios.ts`）
-- **Firebase Authentication**（Email/Password）
-- **VeeValidate + Yup**（フォームバリデーション）
-- TypeScript 対応可（必要に応じて拡張）
+< --- トップ画面の画像 ---- >
 
-## 🏗 ディレクトリ構成（抜粋）
-frontend/
-├─ pages/ # ルーティング（/ , /login , /register , /posts/[id] ...）
-├─ components/ # UIコンポーネント（Header, SideNav, Message など）
-├─ plugins/
-│ └─ axios.ts # $api を提供（baseURL は .env の値を使用）
-├─ stores/ # Pinia ストア
-├─ public/ # 静的ファイル
-└─ nuxt.config.ts
+---
 
+## 作成した目的
+- フロントエンド（Nuxt 4 / Vue 3）とバックエンド（Laravel API）の連携を学習するため  
+- 実務で利用する技術スタック（認証、バリデーション、状態管理）の習得  
+- ポートフォリオとしてSNS風アプリを完成させ、フロントエンド・バックエンド一貫で開発できることを示すため  
 
-## 🚀 セットアップ（ローカル）
+---
+
+## アプリケーションURL
+- 開発環境: http://localhost:3000
+- 注意事項: Firebase Authentication を利用しているため、動作確認には Firebase プロジェクトの設定が必要です  
+
+---
+
+## 他のリポジトリ
+- [バックエンド（Laravel API）リポジトリ](https://github.com/komataku02/twitter-like-backend)
+
+---
+
+## 機能一覧
+- ユーザー登録 / ログイン（Firebase Authentication）  
+- 投稿の作成 / 一覧 / 詳細表示  
+- いいね機能  
+- コメント機能  
+- バリデーション（VeeValidate + Yup）  
+- ユーザーステータス管理（Pinia）  
+
+---
+
+## 使用技術（実行環境）
+- Nuxt 4 (Vue 3)  
+- Pinia（状態管理）  
+- Axios（API通信 / plugins/axios.ts）  
+- Firebase Authentication（Email/Password 認証）  
+- VeeValidate + Yup（フォームバリデーション）  
+- Node.js v18（開発環境）  
+
+---
+
+## テーブル設計
+< --- 作成したテーブル設計の画像 ---- >
+
+---
+
+## ER図
+< --- 作成したER図の画像 ---- >
+
+---
+
+## 環境構築
 
 ### 前提
-- Node.js **18 以上**（推奨：LTS）
-- npm または pnpm/yarn（以下は npm 例）
+- Node.js v18以上  
+- npm / pnpm / yarn（以下は npm 例）
 
-### 1) 依存関係のインストール
-```bash
+### 1) リポジトリをクローン
+```
+git clone https://github.com/ユーザー名/twitter-like-frontend.git
+cd twitter-like-frontend
+```
+### 2)依存関係をインストール
+```
 npm install
-2) 環境変数を用意
-.env.example をコピーして .env を作成し、値を設定します。
+```
+### 3)環境変数を設定
+```
 cp .env.example .env
-
-.env の例（必要に応じて編集）：
+```
+### .envの例
+```
 # API ベースURL（Laravel 側）
 NUXT_PUBLIC_API_BASE=http://127.0.0.1:8000/api/v1
 
@@ -44,49 +85,16 @@ NUXT_PUBLIC_FIREBASE_API_KEY=your_api_key_here
 NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
 NUXT_PUBLIC_FIREBASE_PROJECT_ID=your-project
 NUXT_PUBLIC_FIREBASE_APP_ID=1:xxxxxxxxxxxx:web:yyyyyyyyyyyy
-
-3) 開発サーバ起動
+```
+### 4)開発サーバー起動
+```
 npm run dev
-# http://localhost:3000 でアクセス
-起動確認：トップページに “Nuxt ⇔ Laravel Health” と、/api/v1/health のレスポンスが表示されればOKです。
+```
+ブラウザでhttp://localhost:3000にアクセス。
 
-4) ビルド
+### 5)ビルド＆プレビュー
+```
 npm run build
 npm run preview
-
-🔌 Axios プラグインについて
-
-plugins/axios.ts で $api を提供しています。
-
-baseURL は .env の NUXT_PUBLIC_API_BASE を参照します。
-
-例：const { $api } = useNuxtApp(); await $api.get('/posts');
-
-🔐 Firebase 認証について
-
-Email/Password ログイン／新規登録を利用予定です。
-
-実装時は Firebase Console で Web アプリを作成し、.env の NUXT_PUBLIC_FIREBASE_* を設定します。
-
-🧪 バリデーション
-
-VeeValidate + Yup を使用。
-
-入力必須／文字数制限／形式（メール）など、仕様に基づきスキーマ化。
-
-📝 スクリプト（package.json）
-
-dev：開発サーバ
-
-build：本番ビルド
-
-preview：ビルド済みのプレビュー
-
-🔧 トラブルシュート
-
-画面が白い：ブラウザコンソールとサーバログを確認。pages/ 配下に index.vue があるか、プラグインのパスが正しいかをチェック。
-
-500/404：.env の NUXT_PUBLIC_API_BASE と Laravel 側のポート/パスが一致しているか確認。
-
-CORS：Laravel の config/cors.php で http://localhost:3000 を許可。
+```
 
