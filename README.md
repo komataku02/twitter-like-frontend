@@ -64,7 +64,7 @@ Nuxt 4 をベースに、状態管理（Pinia）、フォームバリデーシ�
 
 ### 1) リポジトリをクローン
 ```
-git clone https://github.com/ユーザー名/twitter-like-frontend.git
+git clone https://github.com/komatuku02/twitter-like-frontend.git
 cd twitter-like-frontend
 ```
 ### 2)依存関係をインストール
