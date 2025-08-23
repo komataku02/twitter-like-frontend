@@ -1,61 +1,78 @@
+<!-- pages/index.vue -->
 <template>
-  <main class="max-w-[720px] mx-auto p-4 space-y-4">
-    <header class="flex items-center justify-between">
-      <h1 class="text-xl font-bold">タイムライン</h1>
-      <NuxtLink to="/login" class="underline text-sm">ログイン</NuxtLink>
-    </header>
+  <main class="wrap">
+    <SideNav @posted="onPosted" />
 
-    <!-- ローディング -->
-    <div v-if="pending">読み込み中...</div>
+    <section class="feed">
+      <h1 class="heading">タイムライン</h1>
 
-    <!-- エラー -->
-    <div v-else-if="error" class="text-red-600">
-      取得に失敗しました: {{ (error as any).message ?? error }}
-    </div>
+      <div v-if="loading">読み込み中...</div>
+      <div v-else-if="error" class="err">取得に失敗：{{ (error as any)?.message || error }}</div>
 
-    <!-- 一覧 -->
-    <ul v-else class="space-y-3">
-      <li v-for="post in posts" :key="post.id" class="border rounded p-3">
-        <div class="text-sm text-gray-500">
-          @{{ post.user?.username ?? 'unknown' }} ・ #{{ post.id }}
-        </div>
-        <p class="mt-1 whitespace-pre-wrap break-words">{{ post.content }}</p>
-        <div class="mt-2 text-sm text-gray-600">
-          💬 {{ post.comments_count }}　❤️ {{ post.likes_count }}
-        </div>
-      </li>
-    </ul>
+      <ul v-else class="list">
+        <li v-for="p in posts" :key="p.id" class="item">
+          <div class="meta">@{{ p.user?.username ?? 'unknown' }} ・ #{{ p.id }}</div>
+          <p class="body">{{ p.content }}</p>
+          <div class="counts">💬 {{ p.comments_count ?? p.comments?.length ?? 0 }}　❤️ {{ p.likes_count ?? p.likes?.length ?? 0 }}</div>
+        </li>
+      </ul>
+    </section>
   </main>
 </template>
 
 <script setup lang="ts">
-type UserLite = { id: number; username: string }
-type PostItem = {
+import SideNav from '~/components/SideNav.vue'
+
+type Post = {
   id: number
   content: string
-  user?: UserLite
-  comments_count: number
-  likes_count: number
+  user?: { id?: number; username?: string }
+  comments?: any[]
+  likes?: any[]
+  comments_count?: number
+  likes_count?: number
 }
 
 const { $api } = useNuxtApp()
+const posts = ref<Post[]>([])
+const loading = ref(false)
+const error = ref<unknown>(null)
 
-// /api/v1/posts は Laravel 側で paginate している想定
-// ここでは 1ページ目だけ表示
-const { data, pending, error } = await useAsyncData('posts:index', async () => {
-  const res = await $api.get('/posts')
-  return res.data
-})
+const fetchPosts = async () => {
+  loading.value = true
+  error.value = null
+  try {
+    const res = await $api.get('/posts', {params: { _t: Date.now()}})
+    posts.value = Array.isArray(res.data?.data) ? res.data.data : res.data
+  } catch (e) {
+    error.value = e
+  } finally {
+    loading.value = false
+  }
+}
 
-// Laravel paginate の戻りに合わせて items を取り出す
-const posts = computed<PostItem[]>(() => {
-  // res.data の形が { data: [...], current_page: 1, ... } 想定
-  // もしフラット配列だけ返しているなら data.value をそのまま返す
-  if (!data.value) return []
-  return Array.isArray(data.value.data) ? data.value.data : data.value
-})
+// 楽観更新：子から受け取った新規投稿を即座に先頭へ
+const onPosted = (post?: Post) => {
+  if (post) {
+    posts.value.unshift(post)
+    // 直後に正規データで再同期（並びやcountの整合を取る）
+    fetchPosts()
+  } else {
+
+  }
+}
+
+onMounted(fetchPosts)
 </script>
 
 <style scoped>
-/* 必要なら簡単なスタイルを足す */
+.wrap { display: grid; grid-template-columns: 260px 1fr; gap: 24px; max-width: 960px; margin: 0 auto; padding: 16px; }
+.feed { display: grid; gap: 12px; }
+.heading { font-weight: 700; font-size: 18px; }
+.err { color: #c00; }
+.list { display: grid; gap: 12px; }
+.item { border: 1px solid #eee; border-radius: 8px; padding: 12px; }
+.meta { color: #666; font-size: 13px; }
+.body { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+.counts { margin-top: 6px; color: #666; font-size: 13px; }
 </style>
