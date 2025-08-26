@@ -14,9 +14,14 @@
       />
       <div class="row">
         <small class="hint">
+<<<<<<< Updated upstream
           {{ (content || '').length }}/120
+=======
+          {{ count }}/120
+>>>>>>> Stashed changes
           <span v-if="errors.content" class="error">（{{ errors.content }}）</span>
         </small>
+        <small v-if="serverError" class="error">{{ serverError }}</small>
 
         <!-- 送信中のみ無効化。バリデーションは handleSubmit が担当 -->
         <button type="submit" :disabled="isSubmitting" class="btn">
@@ -28,11 +33,13 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import { useForm } from 'vee-validate'
 import * as yup from 'yup'
 
-const emit = defineEmits<{ (e: 'posted',post: any): void }>()
+const emit = defineEmits<{ (e: 'posted', post: any): void }>()
 
+<<<<<<< Updated upstream
 // スキーマ
 const schema = yup.object({
   content: yup.string().trim().required('必須です').max(120, '120文字以内')
@@ -40,18 +47,55 @@ const schema = yup.object({
 
 // defineField を使って “正しい v-model” を得る
 const { defineField, errors, handleSubmit, resetForm, isSubmitting } = useForm({
+=======
+const MAX = 120
+const graphemeLen = (s: string) => Array.from(s ?? '').length
+
+// スキーマ（トリム後に必須＆120文字以内）
+const schema = yup.object({
+  content: yup
+    .string()
+    .transform(v => (v ?? '').trim())
+    .required('必須です')
+    .test('len-120', '120文字以内', (v) => graphemeLen(v ?? '') <= MAX)
+})
+
+const { defineField, errors, handleSubmit, resetForm, isSubmitting, meta, setFieldError } = useForm({
+>>>>>>> Stashed changes
   validationSchema: schema,
   validateOnInput: true,
   initialValues: { content: '' }
 })
+
+// v-model + input attrs を同時に取得
 const [content, contentAttrs] = defineField<string>('content')
+
+// 画面下部に出す汎用サーバエラー（フィールド以外）
+const serverError = ref('')
+
+// 文字数カウント（表示用）
+const count = computed(() => graphemeLen(content.value || ''))
 
 const onSubmit = handleSubmit(async (vals) => {
   const { $api } = useNuxtApp()
-  // 認証前の暫定: user_id=1
-  const res = await $api.post('/posts', { content: vals.content, user_id: 1})
-  resetForm()
-  emit('posted', res.data) // ← 作成された投稿（サーバの戻り）を親に渡す
+  try {
+    // 認証前の暫定: user_id=1
+    const res = await $api.post('/posts', { content: vals.content, user_id: 1 })
+    resetForm()
+    emit('posted', res.data)       // 作成された投稿を親へ
+    serverError.value = ''         // 汎用エラー消去
+  } catch (err: any) {
+    // 422 のフィールドエラーを VeeValidate 側へ反映
+    const payload = err?.response?.data
+    const serverErrors = payload?.errors
+    if (serverErrors?.content?.length) {
+      setFieldError('content', String(serverErrors.content[0]))
+    } else {
+      serverError.value = payload?.message || '送信に失敗しました'
+    }
+    // 再throwは任意。デバッグ用途で残すなら下行を有効化
+    // throw err
+  }
 })
 </script>
 
@@ -60,7 +104,7 @@ const onSubmit = handleSubmit(async (vals) => {
 .title { font-weight: 700; margin-bottom: 8px; }
 .form { display: grid; gap: 8px; }
 .textarea { width: 100%; box-sizing: border-box; resize: vertical; }
-.row { display: flex; justify-content: space-between; align-items: center; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .btn { padding: 6px 12px; border-radius: 8px; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .hint { color: #666; }
