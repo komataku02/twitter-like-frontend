@@ -14,12 +14,12 @@
       />
       <div class="row">
         <small class="hint">
-          {{ (content || '').length }}/120
+          {{ Array.from(content || '').length }}/120
           <span v-if="errors.content" class="error">（{{ errors.content }}）</span>
         </small>
 
         <!-- 送信中のみ無効化。バリデーションは handleSubmit が担当 -->
-        <button type="submit" :disabled="isSubmitting" class="btn">
+        <button type="submit" :disabled="isSubmitting || !meta.valid" class="btn">
           シェアする
         </button>
       </div>
@@ -33,13 +33,20 @@ import * as yup from 'yup'
 
 const emit = defineEmits<{ (e: 'posted',post: any): void }>()
 
+const MAX = 120
+const graphemeLen = (s: string) => Array.from(s).length
+
 // スキーマ
 const schema = yup.object({
-  content: yup.string().trim().required('必須です').max(120, '120文字以内')
+  content: yup
+    .string()
+    .transform(v => (v ?? '').trim()) //1)表示も検証も「トリム後」を基準にするならここで統一
+    .required('必須です')
+    .test('len-120', '120文字以内', (v) => graphemeLen(v ?? '') <= MAX)
 })
 
 // defineField を使って “正しい v-model” を得る
-const { defineField, errors, handleSubmit, resetForm, isSubmitting } = useForm({
+const { defineField, errors, handleSubmit, resetForm, isSubmitting, meta } = useForm({
   validationSchema: schema,
   validateOnInput: true,
   initialValues: { content: '' }
@@ -53,6 +60,7 @@ const onSubmit = handleSubmit(async (vals) => {
   resetForm()
   emit('posted', res.data) // ← 作成された投稿（サーバの戻り）を親に渡す
 })
+
 </script>
 
 <style scoped>
