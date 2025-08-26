@@ -68,7 +68,8 @@ const onPosted = (post?: Post) => {
     // 直後に正規データで再同期（並びやcountの整合を取る）
     fetchPosts()
   } else {
-
+    // 念のため
+    fetchPosts()
   }
 }
 //削除処理
