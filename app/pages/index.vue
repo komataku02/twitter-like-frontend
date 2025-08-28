@@ -1,4 +1,3 @@
-<!-- pages/index.vue -->
 <template>
   <main class="wrap">
     <SideNav @posted="onPosted" />
@@ -11,9 +10,20 @@
 
       <ul v-else class="list">
         <li v-for="p in posts" :key="p.id" class="item">
-          <div class="meta">@{{ p.user?.username ?? 'unknown' }} ・ #{{ p.id }}</div>
+          <div class="meta">
+            @{{ p.user?.username ?? 'unknown' }} ・ #{{ p.id }}
+          </div>
+
           <p class="body">{{ p.content }}</p>
-          <div class="counts">💬 {{ p.comments_count ?? p.comments?.length ?? 0 }}　❤️ {{ p.likes_count ?? p.likes?.length ?? 0 }}</div>
+
+          <div class="row-bottom">
+            <div class="counts">
+              💬 {{ p.comments_count ?? p.comments?.length ?? 0 }}
+              ❤️ {{ p.likes_count ?? p.likes?.length ?? 0 }}
+            </div>
+            <!-- ★ 削除ボタン（まずは誰でも表示。後で認可/表示制御） -->
+            <button class="danger" @click="deletePost(p.id)">削除</button>
+          </div>
         </li>
       </ul>
     </section>
@@ -58,7 +68,27 @@ const onPosted = (post?: Post) => {
     // 直後に正規データで再同期（並びやcountの整合を取る）
     fetchPosts()
   } else {
+    // 念のため
+    fetchPosts()
+  }
+}
+//削除処理
+const deletePost = async (id: number) => {
+  //簡易確認(後でモーダルにしてもOK)
+  if (!confirm('この投稿を削除しますか？')) return
 
+  const prev = posts.value.slice()
+  posts.value = posts.value.filter(p => p.id !== id) //先にUIから消す(楽観)
+
+  try {
+    await $api.delete(`/posts/${id}`)
+    //サーバ側の整合も取りたいなら再取得(任意)
+    //await fetchPosts()
+  } catch (e) {
+    //失敗したら元に戻す
+    posts.value = prev
+    alert('削除に失敗しました')
+    console.error(e)
   }
 }
 
@@ -74,5 +104,8 @@ onMounted(fetchPosts)
 .item { border: 1px solid #eee; border-radius: 8px; padding: 12px; }
 .meta { color: #666; font-size: 13px; }
 .body { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+.row-bottom { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
 .counts { margin-top: 6px; color: #666; font-size: 13px; }
+.danger { padding: 4px 8px; border-radius: 8px; background: #fee; border: 1px solid #f99; color: #900; }
+.danger:hover { background: #fdd; }
 </style>

@@ -14,17 +14,13 @@
       />
       <div class="row">
         <small class="hint">
-<<<<<<< Updated upstream
-          {{ (content || '').length }}/120
-=======
-          {{ count }}/120
->>>>>>> Stashed changes
+          {{ Array.from(content || '').length }}/120
           <span v-if="errors.content" class="error">（{{ errors.content }}）</span>
         </small>
         <small v-if="serverError" class="error">{{ serverError }}</small>
 
         <!-- 送信中のみ無効化。バリデーションは handleSubmit が担当 -->
-        <button type="submit" :disabled="isSubmitting" class="btn">
+        <button type="submit" :disabled="isSubmitting || !meta.valid" class="btn">
           シェアする
         </button>
       </div>
@@ -33,32 +29,34 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useForm } from 'vee-validate'
 import * as yup from 'yup'
 
 const emit = defineEmits<{ (e: 'posted', post: any): void }>()
 
-// スキーマ
+const MAX = 120
+const graphemeLen = (s: string) => Array.from(s).length
+
+// スキーマ（トリム + 絵文字等も1文字としてカウント）
 const schema = yup.object({
-  content: yup.string().trim().required('必須です').max(120, '120文字以内')
+  content: yup
+    .string()
+    .transform(v => (v ?? '').trim())
+    .required('必須です')
+    .test('len-120', '120文字以内', (v) => graphemeLen(v ?? '') <= MAX)
 })
 
-// defineField を使って “正しい v-model” を得る
-const { defineField, errors, handleSubmit, resetForm, isSubmitting } = useForm({
+// defineField で v-model を安全に
+const { defineField, errors, handleSubmit, resetForm, isSubmitting, meta, setFieldError } = useForm({
   validationSchema: schema,
   validateOnInput: true,
   initialValues: { content: '' }
 })
-
-// v-model + input attrs を同時に取得
 const [content, contentAttrs] = defineField<string>('content')
 
-// 画面下部に出す汎用サーバエラー（フィールド以外）
-const serverError = ref('')
-
-// 文字数カウント（表示用）
-const count = computed(() => graphemeLen(content.value || ''))
+// サーバー由来の一般エラー表示用
+const serverError = ref<string>('')
 
 const onSubmit = handleSubmit(async (vals) => {
   const { $api } = useNuxtApp()
@@ -66,19 +64,19 @@ const onSubmit = handleSubmit(async (vals) => {
     // 認証前の暫定: user_id=1
     const res = await $api.post('/posts', { content: vals.content, user_id: 1 })
     resetForm()
-    emit('posted', res.data)       // 作成された投稿を親へ
-    serverError.value = ''         // 汎用エラー消去
+    serverError.value = ''
+    emit('posted', res.data) // 親へ通知（タイムライン即時反映）
   } catch (err: any) {
-    // 422 のフィールドエラーを VeeValidate 側へ反映
-    const payload = err?.response?.data
-    const serverErrors = payload?.errors
-    if (serverErrors?.content?.length) {
-      setFieldError('content', String(serverErrors.content[0]))
+    // 422 のフィールドエラー → VeeValidate に反映
+    const e = err?.response?.data
+    const fe = e?.errors
+    if (fe?.content?.length) {
+      setFieldError('content', String(fe.content[0]))
     } else {
-      serverError.value = payload?.message || '送信に失敗しました'
+      serverError.value = e?.message || '送信に失敗しました'
     }
-    // 再throwは任意。デバッグ用途で残すなら下行を有効化
-    // throw err
+    // 画面上部に赤エラーが欲しければ throw を残す。不要なら削除可。
+    throw err
   }
 })
 </script>
