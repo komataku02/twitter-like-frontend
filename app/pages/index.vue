@@ -21,6 +21,10 @@
               💬 {{ p.comments_count ?? p.comments?.length ?? 0 }}
               ❤️ {{ p.likes_count ?? p.likes?.length ?? 0 }}
             </div>
+            <!-- いいねボタン-->
+            <button class="like" :disabled="p._liking" @click="toggleLike(p)" aria-label="いいねをトグル" title="いいね">
+              ❤️ いいね
+            </button>
             <!-- ★ 削除ボタン（まずは誰でも表示。後で認可/表示制御） -->
             <button class="danger" @click="deletePost(p.id)">削除</button>
           </div>
@@ -41,6 +45,7 @@ type Post = {
   likes?: any[]
   comments_count?: number
   likes_count?: number
+  _liking?: boolean // ← 楽観更新中のフラグ（UI用）
 }
 
 const { $api } = useNuxtApp()
@@ -72,6 +77,35 @@ const onPosted = (post?: Post) => {
     fetchPosts()
   }
 }
+
+// ★ いいねトグル（楽観更新）
+const toggleLike = async (p: Post) => {
+  if (p._liking) return
+  p._liking = true
+
+  // 現在値を保存（ロールバック用）
+  const prev = p.likes_count ?? p.likes?.length ?? 0
+
+  // 楽観的に +1/-1（APIはトグルなので実際の最終値はAPI応答で確認し直しても良い）
+  const optimistic = prev + 1 // UI的には「押したら+1」に寄せる
+  p.likes_count = optimistic
+
+  try {
+    const res = await $api.post(`/posts/${p.id}/likes/toggle`, { user_id: 1})
+    // サーバが確定値を返すならそれに更新（返さない場合はコメントアウトでOK）
+    if (typeof res.data?.likes_count === 'number') {
+      p.likes_count = res.data.likes_count
+    }
+  } catch (e) {
+    // 失敗→ロールバック
+    p.likes_count = prev
+    console.error(e)
+    alert('いいねの更新に失敗しました')
+  } finally {
+    p._liking = false
+  }
+}
+
 //削除処理
 const deletePost = async (id: number) => {
   //簡易確認(後でモーダルにしてもOK)
