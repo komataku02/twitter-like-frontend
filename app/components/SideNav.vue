@@ -17,6 +17,7 @@
           {{ Array.from(content || '').length }}/120
           <span v-if="errors.content" class="error">（{{ errors.content }}）</span>
         </small>
+        <small v-if="serverError" class="error">{{ serverError }}</small>
 
         <!-- 送信中のみ無効化。バリデーションは handleSubmit が担当 -->
         <button type="submit" :disabled="isSubmitting || !meta.valid" class="btn">
@@ -28,39 +29,56 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useForm } from 'vee-validate'
 import * as yup from 'yup'
 
-const emit = defineEmits<{ (e: 'posted',post: any): void }>()
+const emit = defineEmits<{ (e: 'posted', post: any): void }>()
 
 const MAX = 120
 const graphemeLen = (s: string) => Array.from(s).length
 
-// スキーマ
+// スキーマ（トリム + 絵文字等も1文字としてカウント）
 const schema = yup.object({
   content: yup
     .string()
-    .transform(v => (v ?? '').trim()) //1)表示も検証も「トリム後」を基準にするならここで統一
+    .transform(v => (v ?? '').trim())
     .required('必須です')
     .test('len-120', '120文字以内', (v) => graphemeLen(v ?? '') <= MAX)
 })
 
-// defineField を使って “正しい v-model” を得る
-const { defineField, errors, handleSubmit, resetForm, isSubmitting, meta } = useForm({
+// defineField で v-model を安全に
+const { defineField, errors, handleSubmit, resetForm, isSubmitting, meta, setFieldError } = useForm({
   validationSchema: schema,
   validateOnInput: true,
   initialValues: { content: '' }
 })
 const [content, contentAttrs] = defineField<string>('content')
 
+// サーバー由来の一般エラー表示用
+const serverError = ref<string>('')
+
 const onSubmit = handleSubmit(async (vals) => {
   const { $api } = useNuxtApp()
-  // 認証前の暫定: user_id=1
-  const res = await $api.post('/posts', { content: vals.content, user_id: 1})
-  resetForm()
-  emit('posted', res.data) // ← 作成された投稿（サーバの戻り）を親に渡す
+  try {
+    // 認証前の暫定: user_id=1
+    const res = await $api.post('/posts', { content: vals.content, user_id: 1 })
+    resetForm()
+    serverError.value = ''
+    emit('posted', res.data) // 親へ通知（タイムライン即時反映）
+  } catch (err: any) {
+    // 422 のフィールドエラー → VeeValidate に反映
+    const e = err?.response?.data
+    const fe = e?.errors
+    if (fe?.content?.length) {
+      setFieldError('content', String(fe.content[0]))
+    } else {
+      serverError.value = e?.message || '送信に失敗しました'
+    }
+    // 画面上部に赤エラーが欲しければ throw を残す。不要なら削除可。
+    throw err
+  }
 })
-
 </script>
 
 <style scoped>
@@ -68,7 +86,7 @@ const onSubmit = handleSubmit(async (vals) => {
 .title { font-weight: 700; margin-bottom: 8px; }
 .form { display: grid; gap: 8px; }
 .textarea { width: 100%; box-sizing: border-box; resize: vertical; }
-.row { display: flex; justify-content: space-between; align-items: center; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .btn { padding: 6px 12px; border-radius: 8px; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .hint { color: #666; }
