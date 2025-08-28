@@ -39,7 +39,6 @@ import * as yup from 'yup'
 
 const emit = defineEmits<{ (e: 'posted', post: any): void }>()
 
-<<<<<<< Updated upstream
 // スキーマ
 const schema = yup.object({
   content: yup.string().trim().required('必須です').max(120, '120文字以内')
@@ -47,21 +46,6 @@ const schema = yup.object({
 
 // defineField を使って “正しい v-model” を得る
 const { defineField, errors, handleSubmit, resetForm, isSubmitting } = useForm({
-=======
-const MAX = 120
-const graphemeLen = (s: string) => Array.from(s ?? '').length
-
-// スキーマ（トリム後に必須＆120文字以内）
-const schema = yup.object({
-  content: yup
-    .string()
-    .transform(v => (v ?? '').trim())
-    .required('必須です')
-    .test('len-120', '120文字以内', (v) => graphemeLen(v ?? '') <= MAX)
-})
-
-const { defineField, errors, handleSubmit, resetForm, isSubmitting, meta, setFieldError } = useForm({
->>>>>>> Stashed changes
   validationSchema: schema,
   validateOnInput: true,
   initialValues: { content: '' }
