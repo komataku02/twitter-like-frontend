@@ -21,6 +21,10 @@
               💬 {{ p.comments_count ?? p.comments?.length ?? 0 }}
               ❤️ {{ p.likes_count ?? p.likes?.length ?? 0 }}
             </div>
+            <!-- コメントリンク -->
+            <NuxtLink :to="`/posts/${p.id}`" class="to-detail" aria-label="コメントへ">
+              💬 コメントする
+            </NuxtLink>
             <!-- いいねボタン-->
             <button class="like" :disabled="p._liking" @click="toggleLike(p)" aria-label="いいねをトグル" title="いいね">
               ❤️ いいね
@@ -142,4 +146,7 @@ onMounted(fetchPosts)
 .counts { margin-top: 6px; color: #666; font-size: 13px; }
 .danger { padding: 4px 8px; border-radius: 8px; background: #fee; border: 1px solid #f99; color: #900; }
 .danger:hover { background: #fdd; }
+.to-detail { margin-left: 8px; font-size: 13px; color: #06c; }
+.to-detail:hover { text-decoration: underline; }
 </style>
+
