@@ -11,7 +11,7 @@
         placeholder="いまどうしてる？"
         class="textarea"
         maxlength="120"
-      />
+      ></textarea>
       <div class="row">
         <small class="hint">
           {{ Array.from(content || '').length }}/120
