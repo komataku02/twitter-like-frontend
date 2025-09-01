@@ -42,13 +42,13 @@
 </template>
 
 <script setup lang="ts">
-import { useRoute } from 'vue-router'           // ★ 追加
+import { useRoute } from 'vue-router'
 import { useForm } from 'vee-validate'
 import * as yup from 'yup'
 
 type User = { id: number; username?: string }
 type Comment = { id: number; content: string; user?: User }
-type Post = { id: number; content: string; user?: User }
+type Post = { id: number; content: string; user?: User; comments_count?: number; likes_count?: number }
 
 const route = useRoute()
 const { $api } = useNuxtApp()
@@ -91,17 +91,14 @@ const charCount = computed(() => graphemeLen(content.value || ''))
 const serverError = ref<string>('')
 
 const submitComment = handleSubmit(async (vals) => {
-  serverError.value = ''
-
   const pid = Number(route.params.id)
   // 楽観更新: 仮コメントを先頭に。負の一時IDで衝突回避
-  const optimisticId = -Date.now()
   const optimistic: Comment = {
-    id: optimisticId,
+    id: -Date.now(),
     content: vals.content.trim(),
-    user: { id: 1, username: 'you' },
+    user: {id: 1, username: 'you'}
   }
-  comments.value = [optimistic, ...comments.value]
+  comments.value.unshift(optimistic)
 
   try {
     const res = await $api.post(`/posts/${pid}/comments`, {
@@ -109,7 +106,7 @@ const submitComment = handleSubmit(async (vals) => {
       user_id: 1, // 認証導入前の暫定
     })
     // 成功 → 仮を確定値に置き換え
-    const idx = comments.value.findIndex(c => c.id === optimisticId)
+    const idx = comments.value.findIndex(c => c.id === optimistic.id)
     if (idx !== -1) comments.value.splice(idx, 1, res.data)
     resetForm()
   } catch (err: any) {
@@ -117,28 +114,28 @@ const submitComment = handleSubmit(async (vals) => {
     const e = err?.response?.data
     if (e?.errors?.content?.[0]) {
       setFieldError('content', String(e.errors.content[0]))
-    } else {
-      serverError.value = e?.message || 'コメントの投稿に失敗しました'
     }
     // ロールバック
-    comments.value = comments.value.filter(c => c.id !== optimisticId)
+    comments.value = comments.value.filter(c => c.id !== optimistic.id)
+    alert('コメントの投稿に失敗しました')
     console.error(err)
   }
 })
 /* ▲ コメントフォーム用 ▲ */
-
+// 投稿詳細 + コメント一覧を取得
 const fetchDetail = async () => {
   loading.value = true
   error.value = null
   try {
     const id = Number(route.params.id)
 
-    // 投稿本体（詳細 API が未実装のため仮表示）
-    post.value = { id, content: '(本文は後で取得に差し替え)', user: { id: 0, username: 'unknown' } }
+    // 投稿本体を取得
+    const resPost = await $api.get(`/posts/${id}`)
+    post.value = resPost.data
 
-    // コメント一覧
-    const res = await $api.get(`/posts/${id}/comments`, { params: { _t: Date.now() } })
-    comments.value = Array.isArray(res.data?.data) ? res.data.data : res.data
+    // コメント一覧を取得
+    const resComments = await $api.get(`/posts/${id}/comments`)
+    comments.value = Array.isArray(resComments.data?.data) ? resComments.data.data : resComments.data
   } catch (e) {
     error.value = e
   } finally {
