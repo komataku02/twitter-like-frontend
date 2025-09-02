@@ -129,7 +129,7 @@ const fetchDetail = async () => {
   try {
     const id = Number(route.params.id)
 
-    // 投稿本体を取得
+    // 投稿本体を取得(テンプレートリテラル)
     const resPost = await $api.get(`/posts/${id}`)
     post.value = resPost.data
 
