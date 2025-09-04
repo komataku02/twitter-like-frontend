@@ -32,6 +32,10 @@
         <ul class="list">
           <li v-for="c in comments" :key="c.id" class="item">
             <div class="meta">@{{ c.user?.username ?? 'unknown' }} ・ #{{ c.id }}</div>
+            <!-- 👇 自分のコメントだけに削除ボタンを表示（認証導入前は user_id=1 を仮） -->
+            <button v-if="c.user?.id === 1" class="danger right" :disabled="c._deleting" @click="deleteComment(c)">
+              {{ c._deleting ? '削除中…' : '削除' }}
+            </button>
             <p class="body">{{ c.content }}</p>
           </li>
           <li v-if="comments.length === 0" class="muted">まだコメントはありません</li>
@@ -47,7 +51,10 @@ import { useForm } from 'vee-validate'
 import * as yup from 'yup'
 
 type User = { id: number; username?: string }
-type Comment = { id: number; content: string; user?: User }
+type Comment = {
+  id: number; content: string; user?: { id: number; username?: string }
+  _deleting?: boolean //←UI用の一時フラグ
+}
 type Post = { id: number; content: string; user?: User; comments_count?: number; likes_count?: number }
 
 const route = useRoute()
@@ -140,6 +147,28 @@ const fetchDetail = async () => {
     error.value = e
   } finally {
     loading.value = false
+  }
+}
+
+const deleteComment = async (c: Comment) => {
+  if (c.deleting) return
+  c.deleting = true
+
+  //楽観更新:先にUIから消す
+  const prev = comments.value.slice()
+  comments.value = comments.value.filter(x => x.id !== c.id)
+
+  try {
+    const pid = Number(route.params.id)
+    await $api.delete(`/posts/${pid}/comments/${c.id}`)
+    //成功なら何もしない(もう消えている)
+  } catch (e) {
+    //失敗したら戻す
+    comments.value = prev
+    console.error(e)
+    alert('コメントの削除に失敗しました')
+  } finally {
+    c._deleting = false
   }
 }
 
@@ -242,5 +271,10 @@ onMounted(fetchDetail)
 
 .error {
   color: #c00;
+}
+
+.danger.right {
+  float: right;
+  margin-left: 8px;
 }
 </style>
