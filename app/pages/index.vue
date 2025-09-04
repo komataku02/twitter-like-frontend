@@ -34,6 +34,11 @@
           </div>
         </li>
       </ul>
+      <div v-if="nextPageUrl" class="more">
+        <button :disabled="loadingMore" @click="loadMore">
+          {{ loadingMore ? '読み込み中...' : 'もっと見る' }}
+        </button>
+      </div>
     </section>
   </main>
 </template>
@@ -52,21 +57,53 @@ type Post = {
   _liking?: boolean // ← 楽観更新中のフラグ（UI用）
 }
 
+type Paginated<T> = {
+  data: T[]
+  next_page_url?: string | null
+  current_page?: number
+  last_page?: number
+}
+
 const { $api } = useNuxtApp()
 const posts = ref<Post[]>([])
 const loading = ref(false)
 const error = ref<unknown>(null)
+const nextPageUrl = ref<string | null>(null)
+const loadingMore = ref(false)
 
 const fetchPosts = async () => {
   loading.value = true
   error.value = null
   try {
-    const res = await $api.get('/posts', {params: { _t: Date.now()}})
-    posts.value = Array.isArray(res.data?.data) ? res.data.data : res.data
+    const res = await $api.get('/posts', { params: { _t: Date.now() } })
+    const body = res.data as Paginated<Post> | Post[]
+    if (Array.isArray(body)) {
+      posts.value = body
+      nextPageUrl.value = null
+    } else {
+      posts.value = body.data
+      nextPageUrl.value = body.next_page_url ?? null
+    }
   } catch (e) {
     error.value = e
   } finally {
     loading.value = false
+  }
+}
+
+//もっと見るを追加
+const loadMore = async () => {
+  if (!nextPageUrl.value || loadingMore.value) return
+  loadingMore.value = true
+  try {
+    // next_page_url はフルURLなので、そのまま叩ける
+    const res = await $api.get(nextPageUrl.value)
+    const body = res.data as Paginated<Post> | Post[]
+    const chunk = Array.isArray(body) ? body : body.data
+    posts.value.push(...chunk)
+    nextPageUrl.value = Array.isArray(body) ? null : (body.next_page_url ?? null)
+  } finally {
+    loadingMore.value = false
   }
 }
 
@@ -95,7 +132,7 @@ const toggleLike = async (p: Post) => {
   p.likes_count = optimistic
 
   try {
-    const res = await $api.post(`/posts/${p.id}/likes/toggle`, { user_id: 1})
+    const res = await $api.post(`/posts/${p.id}/likes/toggle`, { user_id: 1 })
     // サーバが確定値を返すならそれに更新（返さない場合はコメントアウトでOK）
     if (typeof res.data?.likes_count === 'number') {
       p.likes_count = res.data.likes_count
@@ -134,19 +171,83 @@ onMounted(fetchPosts)
 </script>
 
 <style scoped>
-.wrap { display: grid; grid-template-columns: 260px 1fr; gap: 24px; max-width: 960px; margin: 0 auto; padding: 16px; }
-.feed { display: grid; gap: 12px; }
-.heading { font-weight: 700; font-size: 18px; }
-.err { color: #c00; }
-.list { display: grid; gap: 12px; }
-.item { border: 1px solid #eee; border-radius: 8px; padding: 12px; }
-.meta { color: #666; font-size: 13px; }
-.body { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
-.row-bottom { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
-.counts { margin-top: 6px; color: #666; font-size: 13px; }
-.danger { padding: 4px 8px; border-radius: 8px; background: #fee; border: 1px solid #f99; color: #900; }
-.danger:hover { background: #fdd; }
-.to-detail { margin-left: 8px; font-size: 13px; color: #06c; }
-.to-detail:hover { text-decoration: underline; }
-</style>
+.wrap {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 24px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+}
 
+.feed {
+  display: grid;
+  gap: 12px;
+}
+
+.heading {
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.err {
+  color: #c00;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+}
+
+.item {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.meta {
+  color: #666;
+  font-size: 13px;
+}
+
+.body {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.row-bottom {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.counts {
+  margin-top: 6px;
+  color: #666;
+  font-size: 13px;
+}
+
+.danger {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #fee;
+  border: 1px solid #f99;
+  color: #900;
+}
+
+.danger:hover {
+  background: #fdd;
+}
+
+.to-detail {
+  margin-left: 8px;
+  font-size: 13px;
+  color: #06c;
+}
+
+.to-detail:hover {
+  text-decoration: underline;
+}
+</style>
