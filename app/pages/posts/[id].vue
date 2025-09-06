@@ -12,6 +12,31 @@
         <header class="meta">
           @{{ post?.user?.username ?? 'unknown' }} ・ #{{ post?.id }}
         </header>
+
+        <!-- ▼ 編集モードで本文切替 -->
+        <template v-if="!isEditing">
+          <p class="body">{{ post?.content}}</p>
+          <!-- 暫定: ログインユーザー=1の場合のみ編集ボタン表示-->
+          <button v-if="post?.user?.id === 1" class="btn" @click="startEdit" aria-label="投稿を編集">
+            編集
+          </button>
+        </template>
+
+        <!-- ▼ 編集フォーム -->
+        <form v-else class="c-form" @submit.prevent="submitEdit">
+          <textarea v-model="editContent" v-bind="editAttrs" rows="3" name="content" placeholder="本文を編集(最大120文字)" maxlength="120"></textarea>
+          <div class="c-row">
+            <small class="hint">
+              {{ editCount }}/120
+              <span v-if="editErrors.content" class="error">({{ editErrors.content }})</span>
+              <span v-else-if="editServerError" class="error">({{ editServerError }})</span>
+            </small>
+            <div class="actions">
+              <button class="btn" type="submit" :disabled="editSubmitting || !editMeta.valid">保存</button>
+              <button class="btn cancel" type="button" @click="cancelEdit" :disabled="editSubmitting">キャンセル</button>
+            </div>
+          </div>
+        </form>
         <p class="body">{{ post?.content }}</p>
 
         <!-- ▼ コメント投稿フォーム -->
@@ -151,8 +176,8 @@ const fetchDetail = async () => {
 }
 
 const deleteComment = async (c: Comment) => {
-  if (c.deleting) return
-  c.deleting = true
+  if (c._deleting) return
+  c._deleting = true
 
   //楽観更新:先にUIから消す
   const prev = comments.value.slice()
@@ -171,6 +196,76 @@ const deleteComment = async (c: Comment) => {
     c._deleting = false
   }
 }
+
+/* ====== 編集フォーム 追加 ====== */
+
+
+const editSchema = yup.object({
+  content: yup
+    .string()
+    .transform(v => (v ?? '').trim())
+    .required('必須です')
+    .test('len-120', '120文字以内', v => graphemeLen(v ?? '') <= MAX)
+})
+
+const {
+  defineField: defineEditField,
+  handleSubmit: handleEditSubmit,
+  setFieldError: setEditFieldError,
+  resetForm: resetEditForm,
+  isSubmitting: editSubmitting,
+  errors: editErrors,
+  meta: editMeta
+} = useForm({
+  validationSchema: editSchema,
+  validateOnInput: true,
+  initialValues: { content: ''}
+})
+
+const [editContent, editAttrs] = defineEditField<string>('content')
+const editServerError = ref<string>('')
+const isEditing = ref(false)
+const editCount = computed(() => graphemeLen(editContent.value || ''))
+
+const startEdit = () => {
+  if (!post.value) return
+  isEditing.value = true
+  // 現在の本文をフォームにセット
+  resetEditForm({ values: { content: post.value.content } })
+  editServerError.value = ''
+}
+
+const cancelEdit = () => {
+  isEditing.value = false
+  editServerError.value = ''
+}
+
+const submitEdit = handleEditSubmit(async (vals) => {
+  if (!post.value) return
+  const id = post.value.id
+
+  //楽観更新:いったんUIを先に更新してからサーバー確定値で上書き
+  const prev = post.value.content
+  post.value.content = vals.content.trim()
+
+  try {
+    const res = await $api.put(`/posts/${id}`, { content: vals.content })
+    //サーバー確定値で反映(countsなども含め一式)
+    post.value = res.data
+    isEditing.value = false
+  } catch (err: any) {
+    // 失敗→元に戻す＋フィールドエラー反映
+    post.value.content = prev
+    const e = err?.response?.data
+    if (e?.errors?.content?.[0]) {
+    } else {
+      editServerError.value = e?.message || '保存に失敗しました'
+    }
+    console.error(err)
+  }
+})
+
+
 
 onMounted(fetchDetail)
 </script>
@@ -276,5 +371,14 @@ onMounted(fetchDetail)
 .danger.right {
   float: right;
   margin-left: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn.cancel {
+  background: #eee;
 }
 </style>
