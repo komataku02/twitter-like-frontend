@@ -15,7 +15,7 @@
 
         <!-- ▼ 編集モードで本文切替 -->
         <template v-if="!isEditing">
-          <p class="body">{{ post?.content}}</p>
+          <p class="body">{{ post?.content }}</p>
           <!-- 暫定: ログインユーザー=1の場合のみ編集ボタン表示-->
           <button v-if="post?.user?.id === 1" class="btn" @click="startEdit" aria-label="投稿を編集">
             編集
@@ -24,7 +24,8 @@
 
         <!-- ▼ 編集フォーム -->
         <form v-else class="c-form" @submit.prevent="submitEdit">
-          <textarea v-model="editContent" v-bind="editAttrs" rows="3" name="content" placeholder="本文を編集(最大120文字)" maxlength="120"></textarea>
+          <textarea v-model="editContent" v-bind="editAttrs" rows="3" name="content" placeholder="本文を編集(最大120文字)"
+            maxlength="120"></textarea>
           <div class="c-row">
             <small class="hint">
               {{ editCount }}/120
@@ -37,7 +38,6 @@
             </div>
           </div>
         </form>
-        <p class="body">{{ post?.content }}</p>
 
         <!-- ▼ コメント投稿フォーム -->
         <form class="c-form" @submit.prevent="submitComment">
@@ -65,6 +65,12 @@
           </li>
           <li v-if="comments.length === 0" class="muted">まだコメントはありません</li>
         </ul>
+        <!-- コメントのもっと見る -->
+        <div v-if="cNextUrl" class="more">
+          <button :disabled="cLoadingMore" @click="loadMoreComments">
+            {{ cLoadingMore ? '読み込み中…' : 'もっと見る' }}
+          </button>
+        </div>
       </article>
     </section>
   </main>
@@ -82,6 +88,11 @@ type Comment = {
 }
 type Post = { id: number; content: string; user?: User; comments_count?: number; likes_count?: number }
 
+type Paginated<T> = {
+  data: T[]
+  next_page_url?: string | null
+}
+
 const route = useRoute()
 const { $api } = useNuxtApp()
 
@@ -89,6 +100,8 @@ const post = ref<Post | null>(null)
 const comments = ref<Comment[]>([])
 const loading = ref(false)
 const error = ref<unknown>(null)
+const cLoadingMore = ref(false)
+const cNextUrl = ref<string | null>(null)
 
 /* ▼ コメントフォーム用 ▼ */
 const MAX = 120
@@ -141,11 +154,14 @@ const submitComment = handleSubmit(async (vals) => {
     const idx = comments.value.findIndex(c => c.id === optimistic.id)
     if (idx !== -1) comments.value.splice(idx, 1, res.data)
     resetForm()
+    serverError.value = ''
   } catch (err: any) {
     // 422 などフォームエラー
     const e = err?.response?.data
     if (e?.errors?.content?.[0]) {
       setFieldError('content', String(e.errors.content[0]))
+    } else {
+      serverError.value = e?.message || 'コメントの送信に失敗しました'
     }
     // ロールバック
     comments.value = comments.value.filter(c => c.id !== optimistic.id)
@@ -161,17 +177,41 @@ const fetchDetail = async () => {
   try {
     const id = Number(route.params.id)
 
-    // 投稿本体を取得(テンプレートリテラル)
+    // 投稿本体
     const resPost = await $api.get(`/posts/${id}`)
     post.value = resPost.data
 
-    // コメント一覧を取得
+    // コメント一覧（ページネーション対応）
     const resComments = await $api.get(`/posts/${id}/comments`)
-    comments.value = Array.isArray(resComments.data?.data) ? resComments.data.data : resComments.data
+    if (Array.isArray(resComments.data)) {
+      // 生配列パターン
+      comments.value = resComments.data
+      cNextUrl.value = null
+    } else {
+      // ページネーションパターン
+      const body = resComments.data as Paginated<Comment>
+      comments.value = body.data
+      cNextUrl.value = body.next_page_url ?? null
+    }
   } catch (e) {
     error.value = e
   } finally {
     loading.value = false
+  }
+}
+const loadMoreComments = async () => {
+  if (!cNextUrl.value || cLoadingMore.value) return
+  cLoadingMore.value = true
+  try {
+    const res = await $api.get(cNextUrl.value)
+    const body = res.data as Paginated<Comment> | Comment[]
+    const chunk = Array.isArray(body) ? body : body.data
+    comments.value.push(...chunk)
+    cNextUrl.value = Array.isArray(body) ? null : (body.next_page_url ?? null)
+  } catch (e) {
+    console.error(e)
+  } finally {
+    cLoadingMore.value = false
   }
 }
 
@@ -258,6 +298,7 @@ const submitEdit = handleEditSubmit(async (vals) => {
     post.value.content = prev
     const e = err?.response?.data
     if (e?.errors?.content?.[0]) {
+      setEditFieldError('content', String(e.errors.content[0]))
     } else {
       editServerError.value = e?.message || '保存に失敗しました'
     }
@@ -380,5 +421,16 @@ onMounted(fetchDetail)
 
 .btn.cancel {
   background: #eee;
+}
+
+.more {
+  margin-top: 8px;
+  display: grid;
+  place-items: center;
+}
+
+.more > button {
+  padding: 6px 12px;
+  border-radius: 8px;
 }
 </style>
