@@ -26,8 +26,8 @@
               💬 コメントする
             </NuxtLink>
             <!-- いいねボタン-->
-            <button class="like" :disabled="p._liking" @click="toggleLike(p)" aria-label="いいねをトグル" title="いいね">
-              ❤️ いいね
+            <button class="like" :class="{ on: p._liked }" :disabled="p._liking" @click="toggleLike(p)" :aria-pressed="p._liked" title="いいね">
+              ❤️ {{ p._liked ? 'いいね中' : 'いいね' }}
             </button>
             <!-- ★ 削除ボタン（まずは誰でも表示。後で認可/表示制御） -->
             <button class="danger" @click="deletePost(p.id)">削除</button>
@@ -55,6 +55,7 @@ type Post = {
   comments_count?: number
   likes_count?: number
   _liking?: boolean // ← 楽観更新中のフラグ（UI用）
+  _liked?: boolean // ←ローカルの「自分がいいね済み」状態
 }
 
 type Paginated<T> = {
@@ -125,23 +126,29 @@ const toggleLike = async (p: Post) => {
   p._liking = true
 
   // 現在値を保存（ロールバック用）
-  const prev = p.likes_count ?? p.likes?.length ?? 0
+  const prevCount = p.likes_count ?? p.likes?.length ?? 0
+  const prevLiked = !!p._liked
 
-  // 楽観的に +1/-1（APIはトグルなので実際の最終値はAPI応答で確認し直しても良い）
-  const optimistic = prev + 1 // UI的には「押したら+1」に寄せる
-  p.likes_count = optimistic
+  // 楽観更新：状態に応じて +1 / -1
+  const optimistic = prevLiked ? prevCount - 1 : prevCount + 1
+  p.likes_count = Math.max(0, optimistic)
+  p._liked = !prevLiked
 
   try {
     const res = await $api.post(`/posts/${p.id}/likes/toggle`, { user_id: 1 })
-    // サーバが確定値を返すならそれに更新（返さない場合はコメントアウトでOK）
+    // サーバ確定値で上書き
     if (typeof res.data?.likes_count === 'number') {
       p.likes_count = res.data.likes_count
     }
-  } catch (e) {
+    if (res.data?.status === 'liked') p._liked = true
+    if (res.data?.status === 'unliked') p._liked = false
+  } catch (e: any) {
     // 失敗→ロールバック
-    p.likes_count = prev
+    p.likes_count = prevCount
+    p._liked = prevLiked
+    const msg = e?.response?.data?.message || 'いいねの更新に失敗しました'
     console.error(e)
-    alert('いいねの更新に失敗しました')
+    alert(msg)
   } finally {
     p._liking = false
   }
@@ -249,5 +256,9 @@ onMounted(fetchPosts)
 
 .to-detail:hover {
   text-decoration: underline;
+}
+
+.like.on {
+  background: #fee; border: 1px solid #f99;
 }
 </style>
