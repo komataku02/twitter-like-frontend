@@ -25,6 +25,8 @@
       <span v-else>signed out</span>
     </p>
     <p v-if="err" class="text-red-600 text-sm mt-2">{{ err }}</p>
+    <button class="border p-2" @click="fetchMe">/me を呼ぶ</button>
+    <pre>{{ me }}</pre>
   </div>
 </template>
 
@@ -33,6 +35,8 @@ const email = ref('')
 const password = ref('')
 const err = ref<string>('')
 const { user, ready, login, register, logout } = useFirebaseAuth()
+const { $api } = useNuxtApp()
+const me = ref<any>(null)
 const onLogin = async () => {
   err.value = ''
   try { await login(email.value, password.value) }
@@ -44,4 +48,8 @@ const onRegister = async () => {
   catch (e: any) { err.value = e?.code || e?.message || String(e) }
 }
 const onLogout = async () => { await logout() }
+
+const fetchMe = async () => {
+  try { me.value = await $api('/me') } catch (e) { console.error(e) }
+}
 </script>
