@@ -2,15 +2,19 @@
   <div class="max-w-sm mx-auto p-6 space-y-4">
     <h1 class="text-xl font-bold">Login / Register</h1>
 
+    <!-- Login -->
     <form @submit.prevent="onLogin" class="space-y-2">
       <input v-model="email" type="email" placeholder="email" required class="w-full border p-2" />
       <input v-model="password" type="password" placeholder="password" required class="w-full border p-2" />
       <button class="w-full border p-2">Login</button>
     </form>
 
+    <!-- Register -->
     <form @submit.prevent="onRegister" class="space-y-2">
       <input v-model="email" type="email" placeholder="email" required class="w-full border p-2" />
       <input v-model="password" type="password" placeholder="password" required class="w-full border p-2" />
+      <input v-model="username" type="text" placeholder="username (20文字以内)" maxlength="20" required
+        class="w-full border p-2" />
       <button class="w-full border p-2">Register</button>
     </form>
 
@@ -24,32 +28,35 @@
       <span v-else-if="user">signed in as {{ user.email }}</span>
       <span v-else>signed out</span>
     </p>
-    <p v-if="err" class="text-red-600 text-sm mt-2">{{ err }}</p>
-    <button class="border p-2" @click="fetchMe">/me を呼ぶ</button>
-    <pre>{{ me }}</pre>
   </div>
 </template>
 
 <script setup lang="ts">
 const email = ref('')
 const password = ref('')
-const err = ref<string>('')
+const username = ref('')
+
 const { user, ready, login, register, logout } = useFirebaseAuth()
 const { $api } = useNuxtApp()
-const me = ref<any>(null)
-const onLogin = async () => {
-  err.value = ''
-  try { await login(email.value, password.value) }
-  catch (e: any) { err.value = e?.code || e?.message || String(e) }
-}
-const onRegister = async () => {
-  err.value = ''
-  try { await register(email.value, password.value) }
-  catch (e: any) { err.value = e?.code || e?.message || String(e) }
-}
-const onLogout = async () => { await logout() }
 
-const fetchMe = async () => {
-  try { me.value = await $api('/me') } catch (e) { console.error(e) }
+const onLogin = async () => {
+  await login(email.value, password.value)
+  // ついでにプロフィール取得したい場合はコメント解除
+  // try { const me = await $api('/me'); console.log('me', me) } catch (e) { console.error(e) }
 }
+
+const onRegister = async () => {
+  // Firebase でサインアップ
+  await register(email.value, password.value)
+  // サインアップ直後にプロフィール（username）登録
+  try {
+    await $api.put('/me', { username: username.value })
+    alert('登録が完了しました')
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.response?.data?.errors?.username?.[0] || 'プロフィール登録に失敗しました'
+    alert(msg)
+  }
+}
+
+const onLogout = async () => { await logout() }
 </script>
