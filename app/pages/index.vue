@@ -13,7 +13,7 @@
           <div class="meta">
             @{{ p.user?.username ?? 'unknown' }} ・ #{{ p.id }}
           </div>
-
+          <!-- 受信データは body or content を正規化して p.content に寄せる -->
           <p class="body">{{ p.content }}</p>
 
           <div class="row-bottom">
@@ -26,7 +26,8 @@
               💬 コメントする
             </NuxtLink>
             <!-- いいねボタン-->
-            <button class="like" :class="{ on: p._liked }" :disabled="p._liking" @click="toggleLike(p)" :aria-pressed="p._liked" title="いいね">
+            <button class="like" :class="{ on: p._liked }" :disabled="p._liking" @click="toggleLike(p)"
+              :aria-pressed="p._liked" title="いいね">
               ❤️ {{ p._liked ? 'いいね中' : 'いいね' }}
             </button>
             <!-- ★ 削除ボタン（まずは誰でも表示。後で認可/表示制御） -->
@@ -48,6 +49,7 @@ import SideNav from '~/components/SideNav.vue'
 
 type Post = {
   id: number
+  body?: string
   content: string
   user?: { id?: number; username?: string }
   comments?: any[]
@@ -72,17 +74,31 @@ const error = ref<unknown>(null)
 const nextPageUrl = ref<string | null>(null)
 const loadingMore = ref(false)
 
+/** 受信レコードをUI用に正規化(body/contentの差異やUIフラグを補完) */
+const normalize = (x: any): Post => {
+  const content = x?.content ?? x?.body ?? ''
+  const liked = typeof x?._liked === 'boolean' ? x.liked : !!x?.liked //APIがlikedを返す場合の保険
+  return {
+    ...x,
+    content,
+    _liked: liked,
+    _liking: false,
+    comments_count: typeof x?.comments_count === 'number' ? x.comments_count : (Array.isArray(x?.comments) ? x.comments.length : 0),
+    likes_count: typeof x?.likes_count === 'number' ? x.likes_count : (Array.isArray(x?.likes) ? x.likes.length : 0),
+  }
+}
+
 const fetchPosts = async () => {
   loading.value = true
   error.value = null
   try {
     const res = await $api.get('/posts', { params: { _t: Date.now() } })
-    const body = res.data as Paginated<Post> | Post[]
+    const body = res.data as Paginated<any> |  any[]
     if (Array.isArray(body)) {
-      posts.value = body
+      posts.value = body.map(normalize)
       nextPageUrl.value = null
     } else {
-      posts.value = body.data
+      posts.value = (body.data ?? []).map(normalize)
       nextPageUrl.value = body.next_page_url ?? null
     }
   } catch (e) {
@@ -99,9 +115,9 @@ const loadMore = async () => {
   try {
     // next_page_url はフルURLなので、そのまま叩ける
     const res = await $api.get(nextPageUrl.value)
-    const body = res.data as Paginated<Post> | Post[]
-    const chunk = Array.isArray(body) ? body : body.data
-    posts.value.push(...chunk)
+    const body = res.data as Paginated<any> |  any[]
+    const chunk = Array.isArray(body) ? body : (body.data ?? [])
+    posts.value.push(...chunk.map(normalize))
     nextPageUrl.value = Array.isArray(body) ? null : (body.next_page_url ?? null)
   } finally {
     loadingMore.value = false
@@ -109,18 +125,17 @@ const loadMore = async () => {
 }
 
 // 楽観更新：子から受け取った新規投稿を即座に先頭へ
-const onPosted = (post?: Post) => {
+const onPosted = (post?: any) => {
   if (post) {
-    posts.value.unshift(post)
-    // 直後に正規データで再同期（並びやcountの整合を取る）
-    fetchPosts()
+    posts.value.unshift(normalize(post))
+    fetchPosts()//並び・カウントの整合を取り直す
   } else {
     // 念のため
     fetchPosts()
   }
 }
 
-// ★ いいねトグル（楽観更新）
+// ★ いいねトグル（サーバー確定値で上書き）
 const toggleLike = async (p: Post) => {
   if (p._liking) return
   p._liking = true
@@ -135,13 +150,14 @@ const toggleLike = async (p: Post) => {
   p._liked = !prevLiked
 
   try {
-    const res = await $api.post(`/posts/${p.id}/likes/toggle`, { user_id: 1 })
+    //認証トークンで識別できるのでuser_idは不要
+    const res = await $api.post(`/posts/${p.id}/likes/toggle`)
     // サーバ確定値で上書き
-    if (typeof res.data?.likes_count === 'number') {
-      p.likes_count = res.data.likes_count
-    }
-    if (res.data?.status === 'liked') p._liked = true
-    if (res.data?.status === 'unliked') p._liked = false
+    const status = res?.data?.status
+    const serverCount = res?.data?.likes_count
+    if (typeof serverCount === 'number') p.likes_count = serverCount
+    if (status === 'liked') p._liked = true
+    if (status === 'unkiked') p._liked = false
   } catch (e: any) {
     // 失敗→ロールバック
     p.likes_count = prevCount

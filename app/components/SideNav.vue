@@ -61,8 +61,8 @@ const serverError = ref<string>('')
 const onSubmit = handleSubmit(async (vals) => {
   const { $api } = useNuxtApp()
   try {
-    // 認証前の暫定: user_id=1
-    const res = await $api.post('/posts', { content: vals.content, user_id: 1 })
+    // content で入力→送信は body に寄せる(user_idは不要)
+    const res = await $api.post('/posts', { body: vals.content})
     resetForm()
     serverError.value = ''
     emit('posted', res.data) // 親へ通知（タイムライン即時反映）
@@ -70,7 +70,11 @@ const onSubmit = handleSubmit(async (vals) => {
     // 422 のフィールドエラー → VeeValidate に反映
     const e = err?.response?.data
     const fe = e?.errors
-    if (fe?.content?.length) {
+    // サーバーはbodyをキーに返してくるのでcontentに写す
+    if (fe?.body?.length) {
+      setFieldError('content', String(fe.body[0]))
+    } else if (fe?.content?.length) {
+      //念のため後方互換
       setFieldError('content', String(fe.content[0]))
     } else {
       serverError.value = e?.message || '送信に失敗しました'
