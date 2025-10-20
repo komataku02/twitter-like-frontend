@@ -1,14 +1,19 @@
 <template>
   <form class="pc" @submit.prevent="onSubmit">
     <!-- テキスト -->
-    <textarea v-model="content" class="pc-textarea" :maxlength="MAX" placeholder="いまどうしてる？（120文字まで）"></textarea>
+    <textarea
+      v-model="content"
+      class="pc-textarea"
+      :maxlength="MAX"
+      placeholder="いまどうしてる？（120文字まで）"
+    ></textarea>
 
     <!-- 文字数カウンタ -->
     <div class="pc-counter" :class="{ warn: content.length >= MAX - 10 }">
       {{ content.length }} / {{ MAX }}
     </div>
 
-    <!-- 画像プレビュー（選択後に出る） -->
+    <!-- 画像プレビュー（選択後） -->
     <div v-if="previews.length" class="pc-previews">
       <div v-for="(src, i) in previews" :key="src" class="pc-thumb">
         <img :src="src" alt="" />
@@ -16,9 +21,20 @@
       </div>
     </div>
 
-    <!-- 画像選択 -->
-    <input ref="fileInput" type="file" class="pc-file" accept="image/jpeg,image/png,image/webp,image/gif" multiple
-      @change="onPick" />
+    <!-- 完全カスタムのファイル選択行 -->
+    <!-- 視覚的に隠すがスクリーンリーダーからは操作可能 -->
+    <input
+      ref="fileInput"
+      type="file"
+      class="sr-only-file"
+      accept="image/jpeg,image/png,image/webp,image/gif"
+      multiple
+      @change="onPick"
+    />
+    <div class="pc-file-row">
+      <button type="button" class="pc-file-btn" @click="fileInput?.click()">ファイル選択</button>
+      <span class="pc-file-label" aria-live="polite">{{ fileLabel }}</span>
+    </div>
 
     <p class="pc-help">画像は最大{{ MAX_FILES }}枚、各{{ MAX_MB }}MBまで（jpg/png/webp/gif）</p>
 
@@ -45,8 +61,15 @@ const files = ref<File[]>([])
 const posting = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-// プレビューURL（ObjectURL）
+// プレビューURL
 const previews = ref<string[]>([])
+
+// ファイル名ラベル
+const fileLabel = computed(() =>
+  files.value.length
+    ? files.value.map(f => f.name).join('、')
+    : '選択されていません'
+)
 
 const isEmpty = computed(
   () => content.value.trim().length === 0 && files.value.length === 0
@@ -54,7 +77,6 @@ const isEmpty = computed(
 
 /** files -> previews を再生成（既存URLはrevoke） */
 const rebuildPreviews = () => {
-  // 既存URL解放
   previews.value.forEach(u => URL.revokeObjectURL(u))
   previews.value = files.value.map(f => URL.createObjectURL(f))
 }
@@ -63,7 +85,6 @@ const onPick = (e: Event) => {
   const input = e.target as HTMLInputElement
   const picked = Array.from(input.files ?? [])
 
-  // 容量・枚数チェック
   const ok: File[] = []
   for (const f of picked) {
     if (f.size > MAX_BYTES) {
@@ -84,10 +105,8 @@ const onPick = (e: Event) => {
 /** 個別削除 */
 const removeFile = (i: number) => {
   const removed = files.value.splice(i, 1)[0]
-  // 対応するプレビューURLも消す
   const url = previews.value.splice(i, 1)[0]
   if (url) URL.revokeObjectURL(url)
-  // 画像を1枚も選んでいない時の safety
   if (!removed && files.value.length) rebuildPreviews()
 }
 
@@ -103,7 +122,6 @@ const onSubmit = async () => {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
 
-    // 成功：親へ通知＆リセット
     emit('posted', res?.data)
     content.value = ''
     files.value = []
@@ -116,7 +134,6 @@ const onSubmit = async () => {
   }
 }
 
-// ページ離脱時にURL解放
 onBeforeUnmount(() => {
   previews.value.forEach(u => URL.revokeObjectURL(u))
 })
@@ -127,10 +144,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 8px;
 }
-
-.pc *, .pc *::before, .pc *::after {
-  box-sizing: border-box;
-}
+.pc *, .pc *::before, .pc *::after { box-sizing: border-box; }
 
 /* テキスト */
 .pc-textarea {
@@ -143,13 +157,8 @@ onBeforeUnmount(() => {
   resize: vertical;
   background: #12161e;
   color: #e9edf1;
-  box-sizing: border-box;
 }
-
-.pc-textarea::placeholder {
-  color: #9aa3b2;
-}
-
+.pc-textarea::placeholder { color: #9aa3b2; }
 .pc-textarea:focus {
   border-color: #3a4150;
   box-shadow: 0 0 0 3px rgba(79, 140, 255, .15);
@@ -163,18 +172,14 @@ onBeforeUnmount(() => {
   line-height: 1;
   margin-top: -2px;
 }
+.pc-counter.warn { color: #ffb3b3; }
 
-.pc-counter.warn {
-  color: #ffb3b3;
-}
-
-/* 画像プレビュー */
+/* プレビュー */
 .pc-previews {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
-
 .pc-thumb {
   position: relative;
   border: 1px solid #2a2f39;
@@ -182,20 +187,16 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: #0f131a;
 }
-
 .pc-thumb img {
   display: block;
   width: 100%;
   height: 140px;
   object-fit: cover;
 }
-
 .pc-thumb-x {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 26px;
-  height: 26px;
+  top: 6px; right: 6px;
+  width: 26px; height: 26px;
   border-radius: 50%;
   border: 1px solid #5d2430;
   background: #3a0f18;
@@ -203,19 +204,51 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-/* ファイル・補足 */
-.pc-file {
-  width: 100%;
-  color: #e9edf1;
+/* 完全カスタムのファイル行 */
+.sr-only-file {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap; border: 0;
 }
 
+.pc-file-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.pc-file-btn {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #2a2f39;
+  background: #7e6bf2;
+  color: #0d1020;
+  cursor: pointer;
+}
+.pc-file-btn:hover { filter: brightness(1.05); }
+
+.pc-file-label {
+  min-width: 0%;
+  font-size: 13px;
+  color: #9aa3b2;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 補足文 */
 .pc-help {
   margin: 0;
   font-size: 12px;
   color: #9aa3b2;
 }
 
-/* 送信ボタン（紫系） */
+/* 送信 */
 .pc-submit {
   width: 100%;
   padding: 12px;
@@ -226,16 +259,11 @@ onBeforeUnmount(() => {
   font-weight: 700;
   cursor: pointer;
 }
-
 .pc-submit:disabled {
   opacity: .6;
   cursor: not-allowed;
   background: #b8affb;
-  /* 薄紫 */
   border-color: #a99bf9;
 }
-
-.pc-submit:hover:not(:disabled) {
-  filter: brightness(1.03);
-}
+.pc-submit:hover:not(:disabled) { filter: brightness(1.03); }
 </style>
