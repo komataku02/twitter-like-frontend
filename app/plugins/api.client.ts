@@ -1,32 +1,59 @@
-export default defineNuxtPlugin(() => {
-  const config = useRuntimeConfig()
+import { getAuth, onAuthStateChanged, signOut, type User } from 'firebase/auth'
 
-  // ofetch($fetch) のインスタンス
+const waitForAuthInit = () =>
+  new Promise<User | null>((resolve) => onAuthStateChanged(getAuth(), resolve, resolve))
+
+export default defineNuxtPlugin(() => {
+  const { public: { apiBase } } = useRuntimeConfig()
+
+  // ofetchインスタンス（全リクエストでIDトークン付与）
   const ofetch = $fetch.create({
-    baseURL: config.public.apiBase,
+    baseURL: apiBase, // .env: NUXT_PUBLIC_API_BASE（例: http://localhost/api/v1）
     async onRequest({ options }) {
-      try {
-        if (process.client) {
-          const { getIdToken } = useFirebaseAuth()
-          const token = await getIdToken()
-          options.headers = { ...(options.headers || {}) }
-          if (token) (options.headers as any).Authorization = `Bearer ${token}`
+      const auth = getAuth()
+      let user = auth.currentUser
+      if (!user) user = await waitForAuthInit()
+
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+        ...(options.headers as any),
+      }
+      if (user) headers.Authorization = `Bearer ${await user.getIdToken()}`
+      options.headers = headers
+    },
+    // 401時の自動リトライ（トークン強制更新）→失敗なら/loginへ
+    async onResponseError({ request, options, response }) {
+      if (response?.status === 401) {
+        const auth = getAuth()
+        const user = auth.currentUser
+        if (user) {
+          try {
+            const fresh = await user.getIdToken(true)
+            options.headers = {
+              ...(options.headers as any),
+              Authorization: `Bearer ${fresh}`,
+              Accept: 'application/json',
+            }
+            return await $fetch.raw(request as any, options as any)
+          } catch { /* noop */ }
         }
-      } catch { /* no-op */ }
+        try { await signOut(auth) } catch {}
+        const router = useRouter()
+        router.push('/login')
+      }
+      throw response
     },
   })
 
-  // axios風に薄くラップ（常に { data } を返す）
+  // axios風ラッパ（常に { data } を返す）
   const wrap = async <T>(input: Parameters<typeof ofetch>[0], opts?: any) => {
     const data = await ofetch<T>(input as any, opts)
-    return { data }
+    return { data } as { data: T }
   }
-
   const mapCfg = (cfg?: any) => {
     if (!cfg) return {}
     const { params, headers, ...rest } = cfg
-    // axiosの params → ofetch の query に写し替え
-    return { query: params, headers, ...rest }
+    return { query: params, headers, ...rest } // axiosのparams→ofetchのquery
   }
 
   const api = {
@@ -42,10 +69,10 @@ export default defineNuxtPlugin(() => {
     delete<T = any>(url: string, cfg?: any) {
       return wrap<T>(url, { method: 'DELETE', ...mapCfg(cfg) })
     },
-
-    // 必要なら生の ofetch も使えるように
-    raw: ofetch,
+    raw: ofetch, // 必要なら生のofetchも
   }
+
+  if (process.client) (window as any).$api = api // コンソール確認用
 
   return { provide: { api } }
 })
