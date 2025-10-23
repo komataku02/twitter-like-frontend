@@ -1,6 +1,6 @@
 <template>
   <aside class="side">
-    <!-- ロゴ：横長ワードマークをそのまま置く -->
+    <!-- ロゴ -->
     <NuxtLink to="/" class="brand" aria-label="ホーム">
       <img :src="icons.logo" alt="SHARE" class="brand-logo" />
     </NuxtLink>
@@ -17,16 +17,37 @@
         <span>プロフィール</span>
       </NuxtLink>
 
-      <button type="button" class="menu-btn" @click="onLogout">
+      <!-- サインイン状態で出し分け -->
+      <button
+        v-if="isAuthed"
+        type="button"
+        class="menu-btn"
+        @click="onLogout"
+      >
         <img :src="icons.logout" class="ic" alt="" />
         <span>ログアウト</span>
       </button>
+
+      <NuxtLink
+        v-else
+        to="/login"
+        class="menu-btn"
+      >
+        <img :src="icons.profile" class="ic" alt="" />
+        <span>ログインはこちら</span>
+      </NuxtLink>
     </nav>
 
-    <!-- 投稿フォーム -->
+    <!-- 投稿フォーム：ログイン時のみ表示（未ログイン時は案内を表示） -->
     <section class="composer">
       <h2 class="title">シェア</h2>
-      <PostComposer @posted="p => emit('posted', p)" />
+
+      <PostComposer v-if="isAuthed" @posted="p => emit('posted', p)" />
+
+      <div v-else class="login-cta">
+        投稿するにはログインが必要です。<br />
+        <NuxtLink to="/login" class="cta-link">ログイン／新規登録へ</NuxtLink>
+      </div>
     </section>
   </aside>
 </template>
@@ -38,10 +59,17 @@ import { useAppIcons } from '@/composables/useAppIcons'
 const icons = useAppIcons()
 const emit = defineEmits<{ (e: 'posted', post?: any): void }>()
 
+// ここがポイント：auth 状態を参照
+const { user, logout } = useFirebaseAuth()
+const isAuthed = computed(() => !!user.value)
+
 const onLogout = async () => {
-  const { logout } = useFirebaseAuth()
-  await logout()
-  await navigateTo('/')}
+  try {
+    await logout()   // composable 側で /login へ遷移している想定
+  } catch (e) {
+    console.error('logout failed:', e)
+  }
+}
 </script>
 
 <style scoped>
@@ -73,6 +101,18 @@ const onLogout = async () => {
   /* 比率維持 */
   display: block;
   flex-shrink: 0;
+}
+
+.login-cta {
+  padding: 12px;
+  border: 1px dashed #2a2f39;
+  border-radius: 12px;
+  color: #b7beca;
+  background: #12161e;
+}
+.cta-link {
+  color: #9b8cf7;
+  text-decoration: underline;
 }
 
 @media (max-width: 860px) {
