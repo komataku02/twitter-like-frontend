@@ -39,10 +39,9 @@ const icons = useAppIcons()
 const emit = defineEmits<{ (e: 'posted', post?: any): void }>()
 
 const onLogout = async () => {
-  const { signOut } = useFirebaseAuth()
-  await signOut()
-  await navigateTo('/login')
-}
+  const { logout } = useFirebaseAuth()
+  await logout()
+  await navigateTo('/')}
 </script>
 
 <style scoped>
