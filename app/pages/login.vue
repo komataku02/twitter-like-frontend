@@ -1,21 +1,23 @@
+<!-- app/pages/login.vue -->
 <template>
   <div class="max-w-sm mx-auto p-6 space-y-4">
     <h1 class="text-xl font-bold">Login / Register</h1>
 
-    <!-- Login -->
     <form @submit.prevent="onLogin" class="space-y-2">
       <input v-model="email" type="email" placeholder="email" required class="w-full border p-2" />
       <input v-model="password" type="password" placeholder="password" required class="w-full border p-2" />
-      <button class="w-full border p-2">Login</button>
+      <button class="w-full border p-2" :disabled="submitting">
+        {{ submitting ? '処理中...' : 'Login' }}
+      </button>
     </form>
 
-    <!-- Register -->
     <form @submit.prevent="onRegister" class="space-y-2">
       <input v-model="email" type="email" placeholder="email" required class="w-full border p-2" />
       <input v-model="password" type="password" placeholder="password" required class="w-full border p-2" />
-      <input v-model="username" type="text" placeholder="username (20文字以内)" maxlength="20" required
-        class="w-full border p-2" />
-      <button class="w-full border p-2">Register</button>
+      <input v-model="username" type="text" placeholder="username (20文字以内)" maxlength="20" required class="w-full border p-2" />
+      <button class="w-full border p-2" :disabled="submitting">
+        {{ submitting ? '処理中...' : 'Register' }}
+      </button>
     </form>
 
     <div class="pt-2 border-t">
@@ -35,28 +37,71 @@
 const email = ref('')
 const password = ref('')
 const username = ref('')
+const submitting = ref(false)
 
+const route = useRoute()
 const { user, ready, login, register, logout } = useFirebaseAuth()
 const { $api } = useNuxtApp()
 
-const onLogin = async () => {
-  await login(email.value, password.value)
-  // ついでにプロフィール取得したい場合はコメント解除
-  // try { const me = await $api('/me'); console.log('me', me) } catch (e) { console.error(e) }
-}
+const nextPath = computed(() => {
+  const q = route.query.next
+  return typeof q === 'string' && q.startsWith('/') ? q : '/'
+})
 
-const onRegister = async () => {
-  // Firebase でサインアップ
-  await register(email.value, password.value)
-  // サインアップ直後にプロフィール（username）登録
+const redirecting = ref(false)
+watch(
+  () => ({ ready: ready.value, user: user.value }),
+  async ({ ready, user }) => {
+    if (redirecting.value) return
+    if (ready && user) {
+      redirecting.value = true
+      await navigateTo(nextPath.value)
+    }
+  },
+  { immediate: true, deep: true }
+)
+
+const onLogin = async () => {
+  if (submitting.value) return
+  submitting.value = true
   try {
-    await $api.put('/me', { username: username.value })
-    alert('登録が完了しました')
+    await login(email.value, password.value)
+    await navigateTo(nextPath.value)
   } catch (e: any) {
-    const msg = e?.response?.data?.message || e?.response?.data?.errors?.username?.[0] || 'プロフィール登録に失敗しました'
-    alert(msg)
+    alert(e?.message || 'ログインに失敗しました')
+    console.error(e)
+  } finally {
+    submitting.value = false
   }
 }
 
-const onLogout = async () => { await logout() }
+const onRegister = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    await register(email.value, password.value)
+    try {
+      await $api.put('/me', { username: username.value })
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.errors?.username?.[0] || 'プロフィール登録に失敗しました'
+      alert(msg)
+    }
+    await navigateTo(nextPath.value)
+  } catch (e: any) {
+    alert(e?.message || '登録に失敗しました')
+    console.error(e)
+  } finally {
+    submitting.value = false
+  }
+}
+
+const onLogout = async () => {
+  try {
+    await logout()
+    // ログアウト後はトップへ戻す（好みで /login にしてもOK）
+    await navigateTo('/')
+  } catch (e) {
+    console.error(e)
+  }
+}
 </script>

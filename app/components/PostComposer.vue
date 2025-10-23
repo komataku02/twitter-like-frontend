@@ -1,5 +1,12 @@
 <template>
-  <form class="pc" @submit.prevent="onSubmit">
+  <!-- 未ログイン：CTA を表示 -->
+  <div v-if="!authed" class="pc-guest">
+    <p class="pc-guest-text">ログインすると投稿できます</p>
+    <NuxtLink to="/login" class="pc-login-btn">ログインする</NuxtLink>
+  </div>
+
+  <!-- ログイン済み：投稿フォーム -->
+  <form v-else class="pc" @submit.prevent="onSubmit">
     <!-- テキスト -->
     <textarea
       v-model="content"
@@ -21,8 +28,7 @@
       </div>
     </div>
 
-    <!-- 完全カスタムのファイル選択行 -->
-    <!-- 視覚的に隠すがスクリーンリーダーからは操作可能 -->
+    <!-- 完全カスタムのファイル選択行（スクリーンリーダー対応で実ファイル入力は視覚的に非表示） -->
     <input
       ref="fileInput"
       type="file"
@@ -46,8 +52,19 @@
 </template>
 
 <script setup lang="ts">
+import { getAuth, onAuthStateChanged } from 'firebase/auth'
+
 const emit = defineEmits<{ (e: 'posted', post?: any): void }>()
 const { $api } = useNuxtApp()
+
+// ログイン状態
+const authed = ref(false)
+onMounted(() => {
+  const stop = onAuthStateChanged(getAuth(), (u) => {
+    authed.value = !!u
+  })
+  onBeforeUnmount(() => stop())
+})
 
 // 制限
 const MAX = 120
@@ -66,19 +83,15 @@ const previews = ref<string[]>([])
 
 // ファイル名ラベル
 const fileLabel = computed(() =>
-  files.value.length
-    ? files.value.map(f => f.name).join('、')
-    : '選択されていません'
+  files.value.length ? files.value.map((f) => f.name).join('、') : '選択されていません'
 )
 
-const isEmpty = computed(
-  () => content.value.trim().length === 0 && files.value.length === 0
-)
+const isEmpty = computed(() => content.value.trim().length === 0 && files.value.length === 0)
 
 /** files -> previews を再生成（既存URLはrevoke） */
 const rebuildPreviews = () => {
-  previews.value.forEach(u => URL.revokeObjectURL(u))
-  previews.value = files.value.map(f => URL.createObjectURL(f))
+  previews.value.forEach((u) => URL.revokeObjectURL(u))
+  previews.value = files.value.map((f) => URL.createObjectURL(f))
 }
 
 const onPick = (e: Event) => {
@@ -111,17 +124,22 @@ const removeFile = (i: number) => {
 }
 
 const onSubmit = async () => {
+  if (!authed.value) {
+    // 念のため二重チェック（URL直叩き等）
+    return navigateTo('/login')
+  }
   if (posting.value || isEmpty.value) return
   posting.value = true
 
   try {
     const fd = new FormData()
     fd.append('content', content.value)
-    files.value.forEach(f => fd.append('images[]', f))
+    files.value.forEach((f) => fd.append('images[]', f))
     const res = await $api.post('/posts', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
 
+    // 成功：親へ通知＆リセット
     emit('posted', res?.data)
     content.value = ''
     files.value = []
@@ -134,8 +152,9 @@ const onSubmit = async () => {
   }
 }
 
+// ページ離脱時にURL解放
 onBeforeUnmount(() => {
-  previews.value.forEach(u => URL.revokeObjectURL(u))
+  previews.value.forEach((u) => URL.revokeObjectURL(u))
 })
 </script>
 
@@ -146,7 +165,33 @@ onBeforeUnmount(() => {
 }
 .pc *, .pc *::before, .pc *::after { box-sizing: border-box; }
 
-/* テキスト */
+/* --- 未ログイン時 CTA --- */
+.pc-guest {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.pc-guest-text {
+  color: #9aa3b2;
+  margin: 0;
+}
+.pc-login-btn {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #7e6bf2;
+  background: #9b8cf7;
+  color: #0d1020;
+  font-weight: 700;
+  text-decoration: none;
+  text-align: center;
+}
+.pc-login-btn:hover { filter: brightness(1.03); }
+
+/* --- テキスト --- */
 .pc-textarea {
   width: 100%;
   min-height: 140px;
@@ -164,7 +209,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 3px rgba(79, 140, 255, .15);
 }
 
-/* カウンタ */
+/* --- カウンタ --- */
 .pc-counter {
   text-align: right;
   font-size: 12px;
@@ -174,7 +219,7 @@ onBeforeUnmount(() => {
 }
 .pc-counter.warn { color: #ffb3b3; }
 
-/* プレビュー */
+/* --- プレビュー --- */
 .pc-previews {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -204,7 +249,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-/* 完全カスタムのファイル行 */
+/* --- 完全カスタムのファイル行 --- */
 .sr-only-file {
   position: absolute !important;
   width: 1px; height: 1px;
@@ -241,14 +286,14 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
-/* 補足文 */
+/* --- 補足文 --- */
 .pc-help {
   margin: 0;
   font-size: 12px;
   color: #9aa3b2;
 }
 
-/* 送信 */
+/* --- 送信 --- */
 .pc-submit {
   width: 100%;
   padding: 12px;
