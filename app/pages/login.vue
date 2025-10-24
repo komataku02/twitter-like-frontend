@@ -1,7 +1,7 @@
 <!-- app/pages/login.vue -->
 <template>
   <div class="max-w-sm mx-auto p-6 space-y-4">
-    <h1 class="text-xl font-bold">Login / Register</h1>
+    <h1 class="text-xl font-bold">ログイン</h1>
 
     <form @submit.prevent="onLogin" class="space-y-2">
       <input v-model="email" type="email" placeholder="email" required class="w-full border p-2" />
@@ -11,18 +11,10 @@
       </button>
     </form>
 
-    <form @submit.prevent="onRegister" class="space-y-2">
-      <input v-model="email" type="email" placeholder="email" required class="w-full border p-2" />
-      <input v-model="password" type="password" placeholder="password" required class="w-full border p-2" />
-      <input v-model="username" type="text" placeholder="username (20文字以内)" maxlength="20" required class="w-full border p-2" />
-      <button class="w-full border p-2" :disabled="submitting">
-        {{ submitting ? '処理中...' : 'Register' }}
-      </button>
-    </form>
-
-    <div class="pt-2 border-t">
-      <button @click="onLogout" class="border p-2 w-full">Logout</button>
-    </div>
+    <p class="text-sm text-gray-600">
+      アカウントをお持ちでないですか？
+      <NuxtLink to="/register" class="underline">新規登録はこちら</NuxtLink>
+    </p>
 
     <p class="text-sm text-gray-600">
       status:
@@ -34,6 +26,7 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({ layout: false, middleware: ['guest-only'] })
 const email = ref('')
 const password = ref('')
 const username = ref('')
