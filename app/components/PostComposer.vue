@@ -135,9 +135,7 @@ const onSubmit = async () => {
     const fd = new FormData()
     fd.append('content', content.value)
     files.value.forEach((f) => fd.append('images[]', f))
-    const res = await $api.post('/posts', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    const res = await $api.post('/posts', fd)
 
     // 成功：親へ通知＆リセット
     emit('posted', res?.data)
@@ -145,8 +143,13 @@ const onSubmit = async () => {
     files.value = []
     rebuildPreviews()
   } catch (e: any) {
-    alert(e?.response?.data?.message || '投稿に失敗しました')
-    console.error(e)
+    const msg =
+    e?.response?.data?.message ||
+    e?.data?.message ||
+    e?.message ||
+    '投稿に失敗しました'
+  alert(msg)
+  console.error('POST /posts failed:', e)
   } finally {
     posting.value = false
   }
