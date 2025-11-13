@@ -20,8 +20,15 @@
 
           <!-- 画像グリッド（クリックで拡大） -->
           <div v-if="p.images?.length" class="imgs">
-            <img v-for="(img, i) in p.images" :key="img.id ?? i" :src="srcThumb(img)" class="img" alt=""
-              @click="openLightbox(p, i)" style="cursor: zoom-in;" />
+            <img
+              v-for="(img, i) in p.images"
+              :key="img.id ?? i"
+              :src="srcThumb(img)"
+              class="img"
+              alt=""
+              @click="openLightbox(p, i)"
+              style="cursor: zoom-in;"
+            />
           </div>
 
           <div class="row-bottom">
@@ -75,7 +82,10 @@
 import SideNav from '~/components/SideNav.vue'
 import { fileUrl } from '@/utils/fileUrl'
 import { useAppIcons } from '@/composables/useAppIcons'
+import { useFeedSync } from '@/composables/useFeedSync'
+
 const icons = useAppIcons()
+const feedSync = useFeedSync()
 
 type PostImage = { id?: number; path?: string; url?: string; thumb_url?: string; width?: number; height?: number }
 type Post = {
@@ -95,20 +105,24 @@ const nextPageUrl = ref<string | null>(null)
 const loadingMore = ref(false)
 
 const srcThumb = (img: PostImage) => img.thumb_url ?? img.url ?? fileUrl(img as any)
-const srcFull = (img: PostImage) => img.url ?? fileUrl(img as any)
+const srcFull  = (img: PostImage) => img.url ?? fileUrl(img as any)
 
 /** API → UI 正規化 */
 const normalize = (x: any): Post => {
   const content = x?.content ?? x?.body ?? ''
-  const liked = typeof x?._liked === 'boolean' ? x._liked : !!x?.liked
+  const liked   = typeof x?._liked === 'boolean' ? x._liked : !!x?.liked
   return {
     ...x,
     content,
     images: Array.isArray(x?.images) ? x.images : [],
     _liked: liked,
     _liking: false,
-    comments_count: typeof x?.comments_count === 'number' ? x.comments_count : (Array.isArray(x?.comments) ? x.comments.length : 0),
-    likes_count: typeof x?.likes_count === 'number' ? x.likes_count : (Array.isArray(x?.likes) ? x.likes.length : 0),
+    comments_count: typeof x?.comments_count === 'number'
+      ? x.comments_count
+      : (Array.isArray(x?.comments) ? x.comments.length : 0),
+    likes_count: typeof x?.likes_count === 'number'
+      ? x.likes_count
+      : (Array.isArray(x?.likes) ? x.likes.length : 0),
   }
 }
 
@@ -119,10 +133,10 @@ const fetchPosts = async () => {
     const res = await $api.get('/posts', { params: { _t: Date.now() } })
     const body = res.data as Paginated<any> | any[]
     if (Array.isArray(body)) {
-      posts.value = body.map(normalize)
+      posts.value = feedSync.applyToList(body.map(normalize))
       nextPageUrl.value = null
     } else {
-      posts.value = (body.data ?? []).map(normalize)
+      posts.value = feedSync.applyToList((body.data ?? []).map(normalize))
       nextPageUrl.value = body.next_page_url ?? null
     }
   } catch (e) {
@@ -139,7 +153,7 @@ const loadMore = async () => {
     const res = await $api.get(nextPageUrl.value)
     const body = res.data as Paginated<any> | any[]
     const chunk = Array.isArray(body) ? body : (body.data ?? [])
-    posts.value.push(...chunk.map(normalize))
+    posts.value.push(...feedSync.applyToList(chunk.map(normalize)))
     nextPageUrl.value = Array.isArray(body) ? null : (body.next_page_url ?? null)
   } finally {
     loadingMore.value = false
@@ -148,7 +162,7 @@ const loadMore = async () => {
 
 /** SideNav から投稿通知を受けたら再読み込み */
 const onPosted = (post?: any) => {
-  if (post) posts.value.unshift(normalize(post))
+  if (post) posts.value.unshift(feedSync.applyToPost(normalize(post)))
   fetchPosts()
 }
 
@@ -159,24 +173,56 @@ const tightClass = (p: Post) => {
   return { 'item--tight': !hasImg && short }
 }
 
+/** いいねの“権威”を再取得（likes_count/liked の絶対値） */
+const fetchLikeAbsolute = async (postId: number) => {
+  try {
+    const r = await $api.get(`/posts/${postId}`)
+    const P = r.data as any
+    const liked = typeof P?._liked === 'boolean' ? P._liked : !!P?.liked
+    const count = typeof P?.likes_count === 'number'
+      ? P.likes_count
+      : (Array.isArray(P?.likes) ? P.likes.length : undefined)
+    return { liked, likes_count: count }
+  } catch {
+    return {} as any
+  }
+}
+
 /** いいね */
 const toggleLike = async (p: Post) => {
   if (p._liking) return
   p._liking = true
+
   const prevCount = p.likes_count ?? p.likes?.length ?? 0
   const prevLiked = !!p._liked
-  p.likes_count = Math.max(0, prevLiked ? prevCount - 1 : prevCount + 1)
+
+  // 楽観更新
   p._liked = !prevLiked
+  p.likes_count = Math.max(0, prevLiked ? prevCount - 1 : prevCount + 1)
+
   try {
     const res = await $api.post(`/posts/${p.id}/likes/toggle`)
     const status = res?.data?.status
     const serverCount = res?.data?.likes_count
-    if (typeof serverCount === 'number') p.likes_count = serverCount
-    if (status === 'liked') p._liked = true
+
+    // サーバー応答を信頼
+    if (status === 'liked')   p._liked = true
     if (status === 'unliked') p._liked = false
+    if (typeof serverCount === 'number') p.likes_count = serverCount
+
+    // 不明なら権威を再取得
+    if (typeof serverCount !== 'number') {
+      const abs = await fetchLikeAbsolute(p.id)
+      if (typeof abs.likes_count === 'number') p.likes_count = abs.likes_count
+      if (typeof abs.liked === 'boolean')      p._liked = abs.liked
+    }
+
+    // スナップショットへ永続
+    feedSync.noteLikeAbsolute(p.id, { liked: p._liked, likes_count: p.likes_count })
   } catch (e: any) {
-    p.likes_count = prevCount
+    // ロールバック
     p._liked = prevLiked
+    p.likes_count = prevCount
     alert(e?.response?.data?.message || 'いいねの更新に失敗しました')
     console.error(e)
   } finally {
@@ -215,254 +261,100 @@ const prevImg = () => { if (lbUrls.value.length) lbIdx.value = (lbIdx.value - 1 
 const onKey = (e: KeyboardEvent) => {
   if (e.key === 'Escape') closeLightbox()
   if (e.key === 'ArrowRight') nextImg()
-  if (e.key === 'ArrowLeft') prevImg()
+  if (e.key === 'ArrowLeft')  prevImg()
 }
 
+/* ================================
+   ★ “確定値”の再適用フックを追加
+   ================================ */
 onMounted(fetchPosts)
 onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
+
+// comments スナップショットの“中身”が変わったら TL に再適用
+watch(
+  () => JSON.stringify(feedSync.snap.value.comments),
+  () => {
+    if (!posts.value.length) return
+    posts.value = posts.value.map(p => feedSync.applyToPost(p))
+  },
+  {
+    // TL に戻ってきたタイミングで snap に既に値があっても 1 回は確実に実行
+    immediate: true,
+  }
+)
 </script>
 
 <style scoped>
-.feed {
-  display: grid;
-  gap: 12px;
-  max-width: 820px;
-}
+.feed { display: grid; gap: 12px; max-width: 820px; }
+.heading { font-weight: 800; font-size: 20px; color: var(--text); }
+.err { color: #ff9aa2; }
 
-.heading {
-  font-weight: 800;
-  font-size: 20px;
-  color: var(--text);
-}
-
-.err {
-  color: #ff9aa2;
-}
-
-/* 行を中身サイズで積む＋余白で伸ばさない */
 .list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 10px;
-  grid-auto-rows: max-content;
-  align-content: start;
-  min-height: 0;
-  grid-template-columns: minmax(0, 1fr);
+  list-style: none; padding: 0; margin: 0;
+  display: grid; gap: 10px; grid-auto-rows: max-content;
+  align-content: start; min-height: 0; grid-template-columns: minmax(0, 1fr);
 }
 
-/* 投稿カード */
-.item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
-  color: var(--text);
+.item { display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--panel); color: var(--text);
 }
+.item--tight { padding: 8px 10px; gap: 6px; }
 
-.item--tight {
-  padding: 8px 10px;
-  gap: 6px;
-}
+.meta { color: var(--muted); font-size: 12px; }
+.body { margin-top: 2px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 
-.meta {
-  color: var(--muted);
-  font-size: 12px;
-}
+.imgs { margin-top: 6px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.imgs .img { width: 100%; height: 150px; object-fit: cover; border-radius: 8px; }
 
-.body {
-  margin-top: 2px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+.row-bottom { margin-top: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.group-left, .group-right { display: flex; gap: 10px; align-items: center; }
 
-/* 画像グリッド */
-.imgs {
-  margin-top: 6px;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-}
-
-.imgs .img {
-  width: 100%;
-  height: 150px;
-  object-fit: cover;
-  border-radius: 8px;
-}
-
-/* フッター行（いいね/コメント/削除） */
-.row-bottom {
-  margin-top: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.group-left,
-.group-right {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-/* ピルボタン（左側） */
 .pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
-  text-decoration: none;
-  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); text-decoration: none; cursor: pointer;
 }
+.pill:disabled { opacity: .6; cursor: not-allowed; }
+.pill:hover { filter: brightness(1.08); }
 
-.pill:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
-
-.pill:hover {
-  filter: brightness(1.08);
-}
-
-/* 右側の丸インジケータ＆× */
-.ic {
-  width: 14px;
-  height: 14px;
-}
+.ic { width: 14px; height: 14px; }
 
 .like-state {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel-2);
 }
-
-.like-state.on {
-  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
-}
+.like-state.on { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); }
 
 .btn-x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--border));
   background: color-mix(in srgb, var(--danger) 30%, var(--panel-2));
-  color: #ffd9df;
-  cursor: pointer;
+  color: #ffd9df; cursor: pointer;
 }
+.btn-x:hover { filter: brightness(1.08); }
 
-.btn-x:hover {
-  filter: brightness(1.08);
-}
-
-/* “もっと見る” */
 .more>button {
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
-  cursor: pointer;
+  padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); cursor: pointer;
 }
+.more>button:disabled { opacity: .6; cursor: not-allowed; }
+.more>button:hover:not(:disabled) { filter: brightness(1.05); }
 
-.more>button:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
+.lb { position: fixed; inset: 0; background: rgba(0,0,0,.85);
+  display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.lb-img { max-width: 92vw; max-height: 92vh; box-shadow: 0 10px 30px rgba(0,0,0,.6); border-radius: 8px; }
+.lb-x, .lb-nav { position: absolute; color: #fff; background: transparent; border: none; cursor: pointer; }
+.lb-x { top: 16px; right: 20px; font-size: 28px; }
+.lb-nav { top: 50%; transform: translateY(-50%); font-size: 40px; padding: 8px 12px; }
+.lb-prev { left: 16px; } .lb-next { right: 16px; }
 
-.more>button:hover:not(:disabled) {
-  filter: brightness(1.05);
-}
-
-/* ライトボックス */
-.lb {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, .85);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-
-.lb-img {
-  max-width: 92vw;
-  max-height: 92vh;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
-  border-radius: 8px;
-}
-
-.lb-x {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  font-size: 28px;
-  color: #fff;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.lb-nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 40px;
-  line-height: 1;
-  color: #fff;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 8px 12px;
-}
-
-.lb-prev {
-  left: 16px;
-}
-
-.lb-next {
-  right: 16px;
-}
-
-/* 広い画面では少しコンパクトに */
 @media (min-width: 1200px) {
-  .imgs .img {
-    height: 120px;
-  }
-
-  .ic {
-    width: 12px;
-    height: 12px;
-  }
-
-  .like-state {
-    width: 24px;
-    height: 24px;
-  }
-
-  .btn-x {
-    width: 26px;
-    height: 26px;
-  }
+  .imgs .img { height: 120px; }
+  .ic { width: 12px; height: 12px; }
+  .like-state { width: 24px; height: 24px; }
+  .btn-x { width: 26px; height: 26px; }
 }
 </style>
-
-
