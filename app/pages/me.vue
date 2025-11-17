@@ -93,14 +93,30 @@ const initials = computed(() => {
 
 //created_atがあれば「いつから利用しているか」を表示
 const joinedAt = computed(() => {
-  if (!user.value?.created_at) return ''
-  const d = new Date(user.value.created_at)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('ja-JP', {
-    year: 'number',
-    month: 'short',
-    day: 'numeric',
-  })
+  const raw = user.value?.created_at
+  if (!raw) return ''
+
+  // Date に変換
+  const d = new Date(raw)
+  if (!Number.isFinite(d.getTime())) {
+    // 変な文字列が来た場合は何も表示しない
+    return ''
+  }
+
+  try {
+    // 通常はこちらを使う（日本語表記）
+    return d.toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  } catch (e) {
+    // もし環境依存で toLocaleDateString がコケたら、素直に "YYYY-MM-DD" で返す
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
 })
 
 const fetchProfile = async () => {
