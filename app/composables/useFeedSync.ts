@@ -1,8 +1,8 @@
 // composables/useFeedSync.ts
 type LikeSnap = { liked?: boolean; likes_count?: number }
 type FeedSnap = { comments: Record<number, number>; likes: Record<number, LikeSnap> }
-
-const SS_KEY = 'feed:sync:v1'
+// ★ 以前: 'feed:sync:v1' → DB をリセットしたので v2 に上げて古いスナップショットを無効化
+const SS_KEY = 'feed:sync:v2'
 
 const loadFromSS = (): FeedSnap => {
   if (!process.client) return { comments: {}, likes: {} }
