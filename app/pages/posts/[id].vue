@@ -20,8 +20,9 @@
         <!-- 表示モード -->
         <template v-if="!isEditing">
           <p class="body">{{ post?.content }}</p>
+          <!-- ★ ログイン中ユーザーの投稿だけ編集ボタン表示 -->
           <button
-            v-if="post?.user?.id === 1"
+            v-if="post?.user?.id === me?.id"
             class="btn-primary subtle"
             @click="startEdit"
             aria-label="投稿を編集"
@@ -81,8 +82,19 @@
           <li v-for="c in comments" :key="c.id" class="card item">
             <div class="meta">
               @{{ c.user?.username ?? 'unknown' }} ・ #{{ c.id }}
+              <!-- ★ 自分のコメントだけ編集&削除ボタン表示 -->
+               <button
+                v-if="c.user?.id === me?.id"
+                class="btn-ghost btn-ghost--sm"
+                type="#button"
+                :disabled="c._deleteing || c._saving"
+                @click="startCommentEdit(c)"
+               >
+                編集
+              </button>
+
               <button
-                v-if="c.user?.id === 1"
+                v-if="c.user?.id === me?.id"
                 class="btn-x right"
                 :disabled="c._deleting"
                 @click="deleteComment(c)"
@@ -91,7 +103,35 @@
                 <img :src="icons.cross" class="ic" alt="" />
               </button>
             </div>
-            <p class="body">{{ c.content }}</p>
+            <!-- 通常表示 -->
+            <p v-if="!c._editing" class="body">{{ c.content }}</p>
+
+            <!-- 編集モード -->
+            <div v-else class="c-form">
+              <textarea v-model="c._editDraft" rows="2" class="ta" placeholder="コメントを編集(最大120文字)" maxlength="120">
+              </textarea>
+              <div class="c-row">
+                <small class="hint">コメントを編集(最大120文字)</small>
+                <div class="actions">
+                  <button 
+                    class="btn-primary"
+                    type="button"
+                    :disabled="c._saving"
+                    @click="submitCommentEdit(c)"
+                    >
+                    保存
+                  </button>
+                  <button
+                    class="btn-ghost"
+                    type="button"
+                    :disabled="c._saving"
+                    @click="cancelCommentEdit(c)"
+                  >
+                  キャンセル
+                </button>
+                </div>
+              </div>
+            </div>
           </li>
           <li v-if="comments.length === 0" class="muted">まだコメントはありません</li>
         </ul>
@@ -117,9 +157,9 @@ import { useFeedSync } from '@/composables/useFeedSync'
 const icons = useAppIcons()
 const feedSync = useFeedSync()
 
-type User = { id: number; username?: string }
-type Comment = { id: number; content: string; user?: { id: number; username?: string }; _deleting?: boolean }
-type Post = { id: number; content: string; user?: User; comments_count?: number; likes_count?: number }
+type User   = { id: number; username?: string }
+type Comment = { id: number; content: string; user?: User; _deleting?: boolean; _editing?: boolean; _saving?: boolean; _editDraft?: string; }
+type Post   = { id: number; content: string; user?: User; comments_count?: number; likes_count?: number }
 type Paginated<T> = { data: T[]; next_page_url?: string | null }
 
 const route = useRoute()
@@ -132,12 +172,30 @@ const error = ref<unknown>(null)
 const cLoadingMore = ref(false)
 const cNextUrl = ref<string | null>(null)
 
+/** ログイン中ユーザー情報（id / username） */
+const me = ref<User | null>(null)
+
+/** /me からログインユーザー情報を取得 */
+const fetchMe = async () => {
+  try {
+    const res = await $api.get('/me')
+    const body = res.data as any
+    me.value = {
+      id: Number(body.id),
+      username: body.username ?? undefined,
+    }
+  } catch (e) {
+    console.error('Failed to fetch /me', e)
+    me.value = null
+  }
+}
+
 /** サーバ権威のコメント総数を number で取得（なければ undefined） */
 const fetchLatestTotal = async (pid: number): Promise<number | undefined> => {
   try {
     const res = await $api.get(`/posts/${pid}`)
     const body = res.data as any
-    // ★ /posts/{id} が { data: {...} } でも {...} でも OK にする
+    // /posts/{id} が { data: {...} } でも {...} でも OK にする
     const p = body?.data ?? body
 
     const raw =
@@ -175,15 +233,21 @@ const serverError = ref<string>('')
 
 const submitComment = handleSubmit(async (vals) => {
   const pid = Number(route.params.id)
+
+  // ★ 楽観コメントもログイン中ユーザーの情報を使う
+  const optimisticUser: User = me.value
+    ? { id: me.value.id, username: me.value.username ?? 'you' }
+    : { id: 0, username: 'you' }
+
   const optimistic: Comment = {
     id: -Date.now(),
     content: vals.content.trim(),
-    user: { id: 1, username: 'you' },
+    user: optimisticUser,
   }
   comments.value.unshift(optimistic)
 
   try {
-    const res = await $api.post(`/posts/${pid}/comments`, { content: vals.content, user_id: 1 })
+    const res = await $api.post(`/posts/${pid}/comments`, { content: vals.content })
     const idx = comments.value.findIndex(c => c.id === optimistic.id)
     if (idx !== -1) comments.value.splice(idx, 1, res.data)
     resetForm()
@@ -220,11 +284,16 @@ const fetchDetail = async () => {
 
     // 投稿本体
     const resPost = await $api.get(`/posts/${id}`)
-    post.value = resPost.data
+    const body = resPost.data as any
+    const rawPost = body?.data ?? body
+
+    // ★ TL と同じ “確定値” を適用してからセット
+    const applied = feedSync.applyToPost(rawPost)
+    post.value = applied
 
     // 初回表示の確定総数もスナップショットへ
-    if (typeof post.value?.comments_count !== 'undefined') {
-      const n = Number(post.value.comments_count)
+    if (typeof applied?.comments_count !== 'undefined') {
+      const n = Number(applied.comments_count)
       if (Number.isFinite(n)) feedSync.noteCommentTotal(id, n)
     }
 
@@ -234,9 +303,9 @@ const fetchDetail = async () => {
       comments.value = resComments.data
       cNextUrl.value = null
     } else {
-      const body = resComments.data as Paginated<Comment>
-      comments.value = body.data
-      cNextUrl.value = body.next_page_url ?? null
+      const cBody = resComments.data as Paginated<Comment>
+      comments.value = cBody.data
+      cNextUrl.value = cBody.next_page_url ?? null
     }
   } catch (e) {
     error.value = e
@@ -256,6 +325,55 @@ const loadMoreComments = async () => {
     cNextUrl.value = Array.isArray(body) ? null : (body.next_page_url ?? null)
   } finally {
     cLoadingMore.value = false
+  }
+}
+
+const startCommentEdit = (c: Comment) => {
+  if (c._deleting) return
+  c._editing = true
+  c._saving = false
+  c._editDraft = c.content
+}
+
+const cancelCommentEdit = (c: Comment) => {
+  c._editing = false
+  c._saving = false
+  c._editDraft = c.content
+}
+
+const submitCommentEdit = async (c: Comment) => {
+  if (c._saving) return
+
+  const pid = Number(route.params.id)
+  const text = (c._editDraft ?? '').trim()
+  const len = graphemeLen(text)
+
+  //簡単なクライアント側チェック(サーバ側もgrapheme_max:120でバリデーション)
+  if (!text || len > MAX) {
+    alert('コメントは1〜120文字で入力してください')
+    return
+  }
+
+  const prev = c.content
+  c.content = text
+  c._saving = true
+
+  try {
+    const res = await $api.put(`/posts/${pid}/comments/${c.id}`, { content: text })
+    const updated = res.data as any
+    c.content = updated?.content ?? text
+    if (updated?.user) c.user = updated.user
+    c._editing = false
+  } catch (err: any) {
+    c.content = prev
+    alert(
+      err?.response?.data?.errors?.content?.[0] ||
+      err?.response?.data.message ||
+      'コメントの更新に失敗しました'
+    )
+    console.error(err)
+  } finally {
+    c._saving = false
   }
 }
 
@@ -335,11 +453,14 @@ const submitEdit = handleEditSubmit(async (vals) => {
   }
 })
 
-onMounted(fetchDetail)
+onMounted(() => {
+  fetchMe()      // ★ ログインユーザー情報
+  fetchDetail()  // ★ 投稿詳細＋コメント一覧
+})
 </script>
 
 <style scoped>
-/* ===== レイアウト ===== */
+/* （CSS はそのまま） */
 .feed { display: grid; gap: 8px; align-content: start; justify-items: start; }
 .heading { font-size: 18px; line-height: 1.25; margin: 0; }
 .err { color: #ff9aa2; }
@@ -387,6 +508,10 @@ onMounted(fetchDetail)
 }
 .btn-primary:disabled { opacity: .6; cursor: not-allowed; background: #b8affb; border-color: #a99bf9; }
 .btn-ghost { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+.btn-ghost--sm {
+  padding:  4px 8px;
+  font-size: 11px;
+}
 
 /* ×アイコンボタン（TLと同仕様） */
 .ic { width: 14px; height: 14px; }
