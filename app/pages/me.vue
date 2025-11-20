@@ -20,8 +20,33 @@
       <article v-else class="card" v-if="user">
         <header class="header">
           <div class="avatar">
-            <span>{{ initials }}</span>
+            <!-- 画像があるとき -->
+            <img
+              v-if="me?.avatar_url"
+              :src="me.avatar_url"
+              alt=""
+              class="avatar-img"
+              ></img>
+            <!-- 画像がないときはイニシャル -->
+            <span v-else class="avatar-fallback">{{ initials }}</span>
           </div>
+
+          <div class="avatar-upload">
+            <label class="btn-ghost">
+              画像を選択
+              <input type="file" accept="image/*" class="hidden-file" @change="onAvatarChange">
+              </input>
+            </label>
+
+            <span class="hint" v-if="avatarFileName">
+              選択中: {{ avatarFileName }}
+            </span>
+
+            <button class="btn-primary" type="button" :disabled="!avatarFile || uploadingAvatar" @click="uploadAvatar">
+              {{ uploadingAvatar ? 'アップロード中...' : 'アイコンを更新' }}
+            </button>
+          </div>
+
           <div class="meta">
             <h2 class="name">
               {{ user.name || '（表示名未設定）' }}
@@ -137,6 +162,8 @@ type Profile = {
   likes_count?: number
   comments_count?: number
   created_at?: string
+  avatar_path?: string | null
+  avatar_url?: string | null
 }
 
 const PROFILE_ENDPOINT = '/me'
@@ -157,12 +184,61 @@ const form = reactive({
 const formError = ref('')
 const fieldErrors = ref<{ name?: string; username?: string; bio?: string }>({})
 
+const me = ref<Profile | null>(null)
+
 // アバター用イニシャル
 const initials = computed(() => {
-  const base = user.value?.name || user.value?.username || user.value?.email || ''
-  if (!base) return '?'
-  return base.trim().slice(0, 2).toUpperCase()
+  const name = me.value?.name ?? user.value?.name
+  if (!me.value?.name) return 'US'
+  return me.value.name.slice(0, 2).toUpperCase()
 })
+
+// /me取得時にavatar_urlも一緒に入ってくる前提
+const fetchMe = async () => {
+  const res = await $api.get('/me')
+  me.value = res.data
+}
+
+const avatarFile = ref<File | null>(null)
+const avatarFileName = computed(() => avatarFile.value?.name ?? '')
+const uploadingAvatar = ref(false)
+
+const onAvatarChange = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) {
+    avatarFile.value = null
+    return
+  }
+  avatarFile.value = file
+}
+
+const uploadAvatar = async () => {
+  if (!avatarFile.value) return
+  uploadingAvatar.value = true
+
+  try {
+    const fd = new FormData()
+    fd.append('avatar', avatarFile.value)
+
+    // ★ $api は ofetch ベース想定 → Content-Type は自動で付くので自分では付けない
+    const res = await $api.post('/me/avatar', fd)
+
+    // 返ってきたプロフィールでuser/me両方更新
+    const u = applyProfile(res.data)
+    user.value = u
+    me.value = u
+
+    // 1 回使ったファイルはクリア
+    avatarFile.value = null
+    alert('アイコンを更新しました')
+  } catch (e: any) {
+    console.error(e)
+    alert(e?.response?.data?.message ?? 'アイコンの更新に失敗しました')
+  } finally {
+    uploadingAvatar.value = false
+  }
+}
 
 // 登録日表示
 const joinedAt = computed(() => {
@@ -190,8 +266,8 @@ const joinedAt = computed(() => {
 
 const applyProfile = (raw: any): Profile => {
   // { data: {...} } or {...}
-  const u = (raw?.data ?? raw) as Profile
-  return u
+  const u = (raw?.data ?? raw) as any
+  return u as Profile
 }
 
 const fetchProfile = async () => {
@@ -199,7 +275,9 @@ const fetchProfile = async () => {
   error.value = null
   try {
     const res = await $api.get(PROFILE_ENDPOINT)
-    user.value = applyProfile(res.data)
+    const u = applyProfile(res.data)
+    user.value = u
+    me.value = u
   } catch (e) {
     error.value = e
     console.error('プロフィール取得に失敗', e)
@@ -305,8 +383,8 @@ onMounted(fetchProfile)
 }
 
 .avatar {
-  width: 52px;
-  height: 52px;
+  width: 64px;
+  height: 64px;
   border-radius: 999px;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -315,6 +393,31 @@ onMounted(fetchProfile)
   justify-content: center;
   font-weight: 700;
   font-size: 18px;
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  border-radius: inherit;
+}
+
+.avatar-fallback {
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.hidden-file {
+  display: none;
+}
+
+.avatar-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .meta {
