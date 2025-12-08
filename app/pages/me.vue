@@ -24,9 +24,9 @@
             <img
               v-if="me?.avatar_url"
               :src="me.avatar_url"
-              alt=""
+              alt="avatar"
               class="avatar-img"
-              ></img>
+            />
             <!-- 画像がないときはイニシャル -->
             <span v-else class="avatar-fallback">{{ initials }}</span>
           </div>
@@ -34,15 +34,24 @@
           <div class="avatar-upload">
             <label class="btn-ghost">
               画像を選択
-              <input type="file" accept="image/*" class="hidden-file" @change="onAvatarChange">
-              </input>
+              <input
+                type="file"
+                accept="image/*"
+                class="hidden-file"
+                @change="onAvatarChange"
+              />
             </label>
 
             <span class="hint" v-if="avatarFileName">
               選択中: {{ avatarFileName }}
             </span>
 
-            <button class="btn-primary" type="button" :disabled="!avatarFile || uploadingAvatar" @click="uploadAvatar">
+            <button
+              class="btn-primary"
+              type="button"
+              :disabled="!avatarFile || uploadingAvatar"
+              @click="handleAvatarUpload"
+            >
               {{ uploadingAvatar ? 'アップロード中...' : 'アイコンを更新' }}
             </button>
           </div>
@@ -118,7 +127,9 @@
               placeholder="例）user_123"
             />
             <p class="field-hint">@の後ろに表示されます</p>
-            <p v-if="fieldErrors.username" class="field-error">{{ fieldErrors.username }}</p>
+            <p v-if="fieldErrors.username" class="field-error">
+              {{ fieldErrors.username }}
+            </p>
           </div>
 
           <div class="field">
@@ -139,7 +150,12 @@
             <button class="btn-primary" type="submit" :disabled="saving">
               {{ saving ? '保存中...' : '保存する' }}
             </button>
-            <button class="btn-ghost" type="button" @click="cancelEdit" :disabled="saving">
+            <button
+              class="btn-ghost"
+              type="button"
+              @click="cancelEdit"
+              :disabled="saving"
+            >
               キャンセル
             </button>
           </div>
@@ -149,7 +165,7 @@
   </NuxtLayout>
 </template>
 
-<script setup lang="ts">
+<<script setup lang="ts">
 import SideNav from '~/components/SideNav.vue'
 
 type Profile = {
@@ -167,7 +183,6 @@ type Profile = {
 }
 
 const PROFILE_ENDPOINT = '/me'
-
 const { $api } = useNuxtApp()
 
 const user = ref<Profile | null>(null)
@@ -184,53 +199,57 @@ const form = reactive({
 const formError = ref('')
 const fieldErrors = ref<{ name?: string; username?: string; bio?: string }>({})
 
+// /me のレスポンスをそのまま保持（avatar_url 用）
 const me = ref<Profile | null>(null)
 
 // アバター用イニシャル
 const initials = computed(() => {
-  const name = me.value?.name ?? user.value?.name
-  if (!me.value?.name) return 'US'
-  return me.value.name.slice(0, 2).toUpperCase()
+  const n = me.value?.name ?? user.value?.name
+  if (!n) return 'US'
+  return n.slice(0, 2).toUpperCase()
 })
 
-// /me取得時にavatar_urlも一緒に入ってくる前提
-const fetchMe = async () => {
-  const res = await $api.get('/me')
-  me.value = res.data
-}
-
+/* ===== アバターアップロード用状態 ===== */
 const avatarFile = ref<File | null>(null)
 const avatarFileName = computed(() => avatarFile.value?.name ?? '')
 const uploadingAvatar = ref(false)
 
+// ファイル選択時
 const onAvatarChange = (e: Event) => {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
+  const file = input.files?.[0] ?? null
+
   if (!file) {
     avatarFile.value = null
     return
   }
+
   avatarFile.value = file
 }
 
-const uploadAvatar = async () => {
-  if (!avatarFile.value) return
+// 「アイコンを更新」クリック時にそのままアップロード
+const handleAvatarUpload = () => {
+  if (!avatarFile.value) {
+    alert('まず画像を選択してください')
+    return
+  }
+  uploadAvatar(avatarFile.value)
+}
+
+// 実際のアップロード
+const uploadAvatar = async (file: File) => {
   uploadingAvatar.value = true
 
   try {
     const fd = new FormData()
-    fd.append('avatar', avatarFile.value)
+    fd.append('avatar', file, file.name)
 
-    // ★ $api は ofetch ベース想定 → Content-Type は自動で付くので自分では付けない
     const res = await $api.post('/me/avatar', fd)
 
-    // 返ってきたプロフィールでuser/me両方更新
-    const u = applyProfile(res.data)
-    user.value = u
-    me.value = u
-
-    // 1 回使ったファイルはクリア
+    // レスポンスで avatar_url 付きプロフィールを更新
+    me.value = res.data as Profile
     avatarFile.value = null
+
     alert('アイコンを更新しました')
   } catch (e: any) {
     console.error(e)
@@ -240,15 +259,13 @@ const uploadAvatar = async () => {
   }
 }
 
-// 登録日表示
+/* ===== 登録日表示 ===== */
 const joinedAt = computed(() => {
   const raw = user.value?.created_at
   if (!raw) return ''
 
   const d = new Date(raw)
-  if (!Number.isFinite(d.getTime())) {
-    return ''
-  }
+  if (!Number.isFinite(d.getTime())) return ''
 
   try {
     return d.toLocaleDateString('ja-JP', {
@@ -265,7 +282,6 @@ const joinedAt = computed(() => {
 })
 
 const applyProfile = (raw: any): Profile => {
-  // { data: {...} } or {...}
   const u = (raw?.data ?? raw) as any
   return u as Profile
 }
@@ -286,6 +302,7 @@ const fetchProfile = async () => {
   }
 }
 
+/* ===== プロフィール編集 ===== */
 const startEdit = () => {
   if (!user.value) return
   isEditing.value = true
@@ -326,7 +343,11 @@ const submitProfile = async () => {
       bio: e.bio?.[0],
     }
 
-    if (!fieldErrors.value.name && !fieldErrors.value.username && !fieldErrors.value.bio) {
+    if (
+      !fieldErrors.value.name &&
+      !fieldErrors.value.username &&
+      !fieldErrors.value.bio
+    ) {
       formError.value = data?.message || 'プロフィールの更新に失敗しました'
     }
 
